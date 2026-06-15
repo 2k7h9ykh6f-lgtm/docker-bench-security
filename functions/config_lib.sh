@@ -1,237 +1,287 @@
 #!/bin/bash
+
 # --------------------------------------------------------------------------------------------
-# config_lib.sh - Unified configuration loading for Docker Bench for Security
+# Configuration loading library for Docker Bench for Security
 #
-# Priority (lowest → highest):
-#   1. Hardcoded defaults
-#   2. Config file  (docker-bench-security.conf or path in DBS_CONFIG_FILE)
+# Loading order (lowest to highest priority):
+#   1. Built-in defaults
+#   2. Config file (./docker-bench-security.conf or /etc/docker-bench-security.conf)
 #   3. Environment variables (DBS_* prefix)
-#   4. CLI arguments (getopts)
+#   4. CLI flags
 #
-# Each resolved value is paired with a source label so callers can report
-# where a setting came from when diagnosing failures.
+# Each variable VAR gets a companion VAR_src tracking where the value came from:
+#   "default", "config:<filepath>", "env:<ENVVAR>", "cli:<flag>"
 # --------------------------------------------------------------------------------------------
 
-# --- Known configuration keys ------------------------------------------------
-# This is the single source of truth for valid keys.
-# Format: internal_var_name
-DBS_KNOWN_KEYS="nocolor logger limit printremediation dockertrustusers check checkexclude include exclude labels"
+# --- Internal helpers ---
 
-# --- Source tracking ---------------------------------------------------------
-# For each key we store __cfg_src_<key> = "default"|"file:<path>"|"env"|"cli"
-# Using plain variables instead of associative arrays for maximum portability.
-
-_cfg_set_source() {
-  local key="$1" src="$2"
-  eval "__cfg_src_${key}=\"${src}\""
+_config_valid_keys() {
+  printf "log_file no_color limit print_remediation trust_users check check_exclude include exclude labels"
 }
 
-cfg_get_source() {
-  local key="$1"
-  eval "printf '%s' \"\${__cfg_src_${key}:-unknown}\""
-}
-
-# --- Default values ----------------------------------------------------------
-_cfg_apply_defaults() {
-  # Only set if the variable is currently unset/empty (preserves pre-existing exports)
-  : "${nocolor:=}"
-  : "${logger:=log/${myname}.log}"
-  : "${limit:=0}"
-  : "${printremediation:=0}"
-  : "${dockertrustusers:=}"
-  : "${check:=}"
-  : "${checkexclude:=}"
-  : "${include:=}"
-  : "${exclude:=}"
-  : "${labels:=}"
-
-  for _k in $DBS_KNOWN_KEYS; do
-    _cfg_set_source "$_k" "default"
+_config_is_valid_key() {
+  for _civ_k in $(_config_valid_keys); do
+    if [ "$1" = "$_civ_k" ]; then
+      return 0
+    fi
   done
+  return 1
 }
 
-# --- Config file loading -----------------------------------------------------
-# Format: KEY=VALUE, one per line. Lines starting with # are comments.
-# Supported keys (mapped to internal variable names):
-#   NO_COLOR          → nocolor
-#   LOG_FILE          → logger
-#   LIMIT             → limit
-#   PRINT_REMEDIATION → printremediation
-#   TRUSTED_USERS     → dockertrustusers
-#   CHECK             → check
-#   CHECK_EXCLUDE     → checkexclude
-#   INCLUDE           → include
-#   EXCLUDE           → exclude
-#   LABELS            → labels
-
-# Mapping from config-file key names to internal variable names
-_cfg_file_key_to_var() {
-  case "$1" in
-    NO_COLOR)          echo "nocolor" ;;
-    LOG_FILE)          echo "logger" ;;
-    LIMIT)             echo "limit" ;;
-    PRINT_REMEDIATION) echo "printremediation" ;;
-    TRUSTED_USERS)     echo "dockertrustusers" ;;
-    CHECK)             echo "check" ;;
-    CHECK_EXCLUDE)     echo "checkexclude" ;;
-    INCLUDE)           echo "include" ;;
-    EXCLUDE)           echo "exclude" ;;
-    LABELS)            echo "labels" ;;
-    *)                 return 1 ;;  # unknown key
+_config_normalize_bool() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    true|yes|1)  printf "true"  ; return 0 ;;
+    false|no|0)  printf "false" ; return 0 ;;
+    *)           return 1 ;;
   esac
 }
 
-_cfg_load_file() {
-  local cfg_file="$1"
-  [ -f "$cfg_file" ] || return 0
+_config_set() {
+  _cs_var="$1"
+  _cs_val="$2"
+  _cs_src="$3"
+  eval "${_cs_var}=\"\${_cs_val}\""
+  eval "${_cs_var}_src=\"\${_cs_src}\""
+}
 
-  local line_no=0
-  local unknown_keys=""
-  while IFS= read -r line || [ -n "$line" ]; do
-    line_no=$((line_no + 1))
+_config_map_key_to_var() {
+  case "$1" in
+    log_file)          printf "logger" ;;
+    no_color)          printf "nocolor" ;;
+    limit)             printf "limit" ;;
+    print_remediation) printf "printremediation" ;;
+    trust_users)       printf "dockertrustusers" ;;
+    check)             printf "check" ;;
+    check_exclude)     printf "checkexclude" ;;
+    include)           printf "include" ;;
+    exclude)           printf "exclude" ;;
+    labels)            printf "labels" ;;
+    *)                 return 1 ;;
+  esac
+}
 
-    # Strip leading/trailing whitespace
-    line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+_config_map_key_to_env() {
+  case "$1" in
+    log_file)          printf "DBS_LOG_FILE" ;;
+    no_color)          printf "DBS_NO_COLOR" ;;
+    limit)             printf "DBS_LIMIT" ;;
+    print_remediation) printf "DBS_PRINT_REMEDIATION" ;;
+    trust_users)       printf "DBS_TRUST_USERS" ;;
+    check)             printf "DBS_CHECK" ;;
+    check_exclude)     printf "DBS_CHECK_EXCLUDE" ;;
+    include)           printf "DBS_INCLUDE" ;;
+    exclude)           printf "DBS_EXCLUDE" ;;
+    labels)            printf "DBS_LABELS" ;;
+    *)                 return 1 ;;
+  esac
+}
 
-    # Skip empty lines and comments
-    [ -z "$line" ] && continue
-    case "$line" in \#*) continue ;; esac
+_config_convert_bool_for_var() {
+  case "$1" in
+    nocolor)
+      if [ "$2" = "true" ]; then printf "nocolor"; else printf ""; fi
+      ;;
+    printremediation)
+      if [ "$2" = "true" ]; then printf "1"; else printf "0"; fi
+      ;;
+    *)
+      printf '%s' "$2"
+      ;;
+  esac
+}
 
-    # Parse KEY=VALUE
-    if ! printf '%s' "$line" | grep -q '='; then
-      printf "config error: %s:%d: invalid line (no '='): %s\n" "$cfg_file" "$line_no" "$line" >&2
+_config_is_bool_var() {
+  case "$1" in
+    nocolor|printremediation) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# --- Public API ---
+
+config_set_defaults() {
+  _config_set logger   "log/${myname}.log" "default"
+  _config_set nocolor  ""                  "default"
+  _config_set limit    "0"                 "default"
+  _config_set printremediation "0"         "default"
+  _config_set dockertrustusers ""          "default"
+  _config_set check         ""             "default"
+  _config_set checkexclude  ""             "default"
+  _config_set include       ""             "default"
+  _config_set exclude       ""             "default"
+  _config_set labels        ""             "default"
+}
+
+config_load_file() {
+  _clf_file=""
+  if [ -n "${DBS_CONFIG_FILE:-}" ]; then
+    if [ ! -f "$DBS_CONFIG_FILE" ]; then
+      printf "Error: Config file not found: %s\n" "$DBS_CONFIG_FILE" >&2
+      return 1
+    fi
+    _clf_file="$DBS_CONFIG_FILE"
+  elif [ -f "./docker-bench-security.conf" ]; then
+    _clf_file="./docker-bench-security.conf"
+  elif [ -f "/etc/docker-bench-security.conf" ]; then
+    _clf_file="/etc/docker-bench-security.conf"
+  fi
+
+  if [ -z "$_clf_file" ]; then
+    return 0
+  fi
+
+  _clf_linenum=0
+  while IFS= read -r _clf_line || [ -n "$_clf_line" ]; do
+    _clf_linenum=$((_clf_linenum + 1))
+
+    # Skip blank lines and comments
+    case "$_clf_line" in
+      ""|\#*) continue ;;
+    esac
+    # Also skip lines that are only whitespace or start with whitespace then #
+    _clf_stripped=$(printf '%s' "$_clf_line" | sed 's/^[[:space:]]*//')
+    case "$_clf_stripped" in
+      ""|\#*) continue ;;
+    esac
+
+    # Parse key=value (split on first =)
+    _clf_key=$(printf '%s' "$_clf_stripped" | sed 's/=.*//')
+    _clf_val=$(printf '%s' "$_clf_stripped" | sed 's/[^=]*=//')
+
+    # Trim whitespace from key and value
+    _clf_key=$(printf '%s' "$_clf_key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    _clf_val=$(printf '%s' "$_clf_val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    # Strip surrounding quotes from value
+    case "$_clf_val" in
+      \"*\") _clf_val=$(printf '%s' "$_clf_val" | sed 's/^"//;s/"$//') ;;
+      \'*\') _clf_val=$(printf '%s' "$_clf_val" | sed 's/^'\''//;s/'\''$//') ;;
+    esac
+
+    # Validate key
+    if ! _config_is_valid_key "$_clf_key"; then
+      printf "Error: Unknown config key '%s' at %s:%d\n" "$_clf_key" "$_clf_file" "$_clf_linenum" >&2
       return 1
     fi
 
-    local key val
-    key="$(printf '%s' "$line" | cut -d'=' -f1)"
-    val="$(printf '%s' "$line" | cut -d'=' -f2-)"
-    # Strip surrounding quotes from value
-    val="$(printf '%s' "$val" | sed 's/^["'\''"]//;s/["'\''"]$//')"
+    # Map to shell variable
+    _clf_var=$(_config_map_key_to_var "$_clf_key")
 
-    local varname
-    if ! varname="$(_cfg_file_key_to_var "$key")"; then
-      unknown_keys="${unknown_keys}  - ${key} (line ${line_no})\n"
+    # Normalize booleans
+    if _config_is_bool_var "$_clf_var"; then
+      _clf_norm=$(_config_normalize_bool "$_clf_val")
+      if [ $? -ne 0 ]; then
+        printf "Error: Invalid boolean value '%s' for key '%s' at %s:%d\n" \
+          "$_clf_val" "$_clf_key" "$_clf_file" "$_clf_linenum" >&2
+        return 1
+      fi
+      _clf_val=$(_config_convert_bool_for_var "$_clf_var" "$_clf_norm")
+    fi
+
+    _config_set "$_clf_var" "$_clf_val" "config:$_clf_file"
+  done < "$_clf_file"
+
+  return 0
+}
+
+config_load_env() {
+  for _cle_key in $(_config_valid_keys); do
+    _cle_env=$(_config_map_key_to_env "$_cle_key")
+    _cle_var=$(_config_map_key_to_var "$_cle_key")
+
+    # Check if env var is set (distinguishes unset from empty)
+    eval "_cle_isset=\${${_cle_env}+x}"
+    if [ -z "$_cle_isset" ]; then
       continue
     fi
 
-    eval "${varname}=\"\${val}\""
-    _cfg_set_source "$varname" "file:${cfg_file}"
-  done < "$cfg_file"
+    eval "_cle_val=\"\${${_cle_env}}\""
 
-  if [ -n "$unknown_keys" ]; then
-    printf "config error: unknown key(s) in %s:\n%b" "$cfg_file" "$unknown_keys" >&2
+    # Normalize booleans
+    if _config_is_bool_var "$_cle_var"; then
+      _cle_norm=$(_config_normalize_bool "$_cle_val")
+      if [ $? -ne 0 ]; then
+        printf "Error: Invalid boolean value '%s' in environment variable %s\n" \
+          "$_cle_val" "$_cle_env" >&2
+        return 1
+      fi
+      _cle_val=$(_config_convert_bool_for_var "$_cle_var" "$_cle_norm")
+    fi
+
+    _config_set "$_cle_var" "$_cle_val" "env:$_cle_env"
+  done
+  return 0
+}
+
+config_set_from_cli() {
+  _config_set "$1" "$2" "cli:$3"
+}
+
+config_validate() {
+  _cv_errors=0
+
+  # Validate limit is a non-negative integer
+  case "$limit" in
+    *[!0-9]*)
+      printf "Error: Invalid limit '%s' (source: %s): must be a non-negative integer\n" \
+        "$limit" "$limit_src" >&2
+      _cv_errors=$((_cv_errors + 1))
+      ;;
+  esac
+
+  # Validate log file parent directory exists
+  _cv_logdir=$(dirname "$logger")
+  if [ ! -d "$_cv_logdir" ]; then
+    printf "Error: Log file directory '%s' does not exist (source: %s)\n" \
+      "$_cv_logdir" "$logger_src" >&2
+    _cv_errors=$((_cv_errors + 1))
+  fi
+
+  # Validate nocolor has expected internal value
+  if [ -n "$nocolor" ] && [ "$nocolor" != "nocolor" ]; then
+    printf "Error: Invalid no_color value '%s' (source: %s)\n" \
+      "$nocolor" "$nocolor_src" >&2
+    _cv_errors=$((_cv_errors + 1))
+  fi
+
+  # Validate printremediation has expected internal value
+  if [ "$printremediation" != "0" ] && [ "$printremediation" != "1" ]; then
+    printf "Error: Invalid print_remediation value '%s' (source: %s)\n" \
+      "$printremediation" "$printremediation_src" >&2
+    _cv_errors=$((_cv_errors + 1))
+  fi
+
+  if [ "$_cv_errors" -gt 0 ]; then
     return 1
   fi
-
   return 0
 }
 
-# --- Environment variable loading -------------------------------------------
-# DBS_* prefix. Only override if the env var is set and non-empty.
-_cfg_load_env() {
-  local mappings="
-    DBS_NO_COLOR:nocolor
-    DBS_LOG_FILE:logger
-    DBS_LIMIT:limit
-    DBS_PRINT_REMEDIATION:printremediation
-    DBS_TRUSTED_USERS:dockertrustusers
-    DBS_CHECK:check
-    DBS_CHECK_EXCLUDE:checkexclude
-    DBS_INCLUDE:include
-    DBS_EXCLUDE:exclude
-    DBS_LABELS:labels
-  "
-
-  for mapping in $mappings; do
-    local env_key varname env_val
-    env_key="$(printf '%s' "$mapping" | cut -d: -f1)"
-    varname="$(printf '%s' "$mapping" | cut -d: -f2)"
-
-    eval "env_val=\"\${${env_key}:-}\""
-    if [ -n "$env_val" ]; then
-      eval "${varname}=\"\${env_val}\""
-      _cfg_set_source "$varname" "env:${env_key}"
-    fi
-  done
-}
-
-# --- CLI flag tracking -------------------------------------------------------
-# Called after getopts to mark CLI-provided values.
-_cfg_mark_cli() {
-  # Map: variable name → was it set by CLI?
-  # We check the flag variables that getopts populates.
-  if [ -n "${_cli_nocolor:-}" ];          then _cfg_set_source "nocolor" "cli:-b"; fi
-  if [ -n "${_cli_logger:-}" ];           then _cfg_set_source "logger" "cli:-l"; fi
-  if [ -n "${_cli_limit:-}" ];            then _cfg_set_source "limit" "cli:-n"; fi
-  if [ -n "${_cli_printremediation:-}" ]; then _cfg_set_source "printremediation" "cli:-p"; fi
-  if [ -n "${_cli_dockertrustusers:-}" ]; then _cfg_set_source "dockertrustusers" "cli:-u"; fi
-  if [ -n "${_cli_check:-}" ];            then _cfg_set_source "check" "cli:-c"; fi
-  if [ -n "${_cli_checkexclude:-}" ];     then _cfg_set_source "checkexclude" "cli:-e"; fi
-  if [ -n "${_cli_include:-}" ];          then _cfg_set_source "include" "cli:-i"; fi
-  if [ -n "${_cli_exclude:-}" ];          then _cfg_set_source "exclude" "cli:-x"; fi
-  if [ -n "${_cli_labels:-}" ];           then _cfg_set_source "labels" "cli:-t"; fi
-}
-
-# --- Configuration summary ---------------------------------------------------
-cfg_print_summary() {
-  printf "%b\n" "${bldylw}Configuration summary:${txtrst}"
-  for _k in $DBS_KNOWN_KEYS; do
-    local val src
-    eval "val=\"\${${_k}:-}\""
-    src="$(cfg_get_source "$_k")"
-    # Mask empty values for readability
-    [ -z "$val" ] && val="(empty)"
-    printf "  %-22s = %-40s  [%s]\n" "$_k" "$val" "$src"
-  done
-}
-
-# --- Main entry point --------------------------------------------------------
-# load_config <config_file_path>
-#
-# Call sequence:
-#   1. Apply hardcoded defaults
-#   2. Load config file (if exists)
-#   3. Load environment variables
-#   4. Apply CLI overrides (already parsed into variables by getopts)
-#   5. Mark CLI sources
-#
-# The config file path can be overridden via DBS_CONFIG_FILE env var.
-# If no path is given, searches:
-#   - ./docker-bench-security.conf
-#   - /etc/docker-bench-security.conf
-
-load_config() {
-  local cfg_file="${1:-}"
-
-  # Step 1: defaults
-  _cfg_apply_defaults
-
-  # Step 2: config file
-  # Allow DBS_CONFIG_FILE env to specify the path
-  if [ -z "$cfg_file" ]; then
-    cfg_file="${DBS_CONFIG_FILE:-}"
+config_print_summary() {
+  _cps_nocolor_display="false"
+  if [ "$nocolor" = "nocolor" ]; then
+    _cps_nocolor_display="true"
   fi
-  if [ -z "$cfg_file" ]; then
-    # Search standard locations
-    if [ -f "./docker-bench-security.conf" ]; then
-      cfg_file="./docker-bench-security.conf"
-    elif [ -f "/etc/docker-bench-security.conf" ]; then
-      cfg_file="/etc/docker-bench-security.conf"
-    fi
-  fi
-  if [ -n "$cfg_file" ]; then
-    if ! _cfg_load_file "$cfg_file"; then
-      return 1
-    fi
+  _cps_remediation_display="false"
+  if [ "$printremediation" = "1" ]; then
+    _cps_remediation_display="true"
   fi
 
-  # Step 3: environment variables
-  _cfg_load_env
+  logit ""
+  logit "[CONFIG] Effective configuration:"
+  logit "[CONFIG]   log_file          = ${logger} (source: ${logger_src})"
+  logit "[CONFIG]   no_color          = ${_cps_nocolor_display} (source: ${nocolor_src})"
+  logit "[CONFIG]   limit             = ${limit} (source: ${limit_src})"
+  logit "[CONFIG]   print_remediation = ${_cps_remediation_display} (source: ${printremediation_src})"
+  logit "[CONFIG]   trust_users       = ${dockertrustusers:-<empty>} (source: ${dockertrustusers_src})"
+  logit "[CONFIG]   check             = ${check:-<empty>} (source: ${check_src})"
+  logit "[CONFIG]   check_exclude     = ${checkexclude:-<empty>} (source: ${checkexclude_src})"
+  logit "[CONFIG]   include           = ${include:-<empty>} (source: ${include_src})"
+  logit "[CONFIG]   exclude           = ${exclude:-<empty>} (source: ${exclude_src})"
+  logit "[CONFIG]   labels            = ${labels:-<empty>} (source: ${labels_src})"
+  logit ""
+}
 
-  # Step 4: CLI overrides are already applied by getopts before load_config is called.
-  # Step 5: mark CLI sources
-  _cfg_mark_cli
-
-  return 0
+config_get_source() {
+  eval "printf '%s' \"\${${1}_src}\""
 }
