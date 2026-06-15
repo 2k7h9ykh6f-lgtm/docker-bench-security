@@ -14,6 +14,7 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
+. $LIBEXEC/functions/config_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -52,6 +53,7 @@ Example:
 
 Options:
   -b           optional  Do not print colors
+  -f FILE      optional  Configuration file path (default: ./docker-bench-security.conf or /etc/docker-bench-security.conf)
   -h           optional  Print this help message
   -l FILE      optional  Log output in FILE, inside container if run using docker
   -u USERS     optional  Comma delimited list of trusted docker user(s)
@@ -63,47 +65,104 @@ Options:
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
 
+Configuration priority (lowest to highest):
+  1. Hardcoded defaults
+  2. Config file (KEY=VALUE format, e.g. NO_COLOR=1, LOG_FILE=/path/to/log)
+  3. Environment variables (DBS_* prefix, e.g. DBS_NO_COLOR=1)
+  4. CLI arguments (this command line)
+
+  Set DBS_CONFIG_FILE=/path/to/conf to override config file search path.
+
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
 Released under the Apache-2.0 License.
 EOF
 }
 
-# Default values
+# Ensure log directory exists
 if [ ! -d log ]; then
   mkdir log
 fi
 
-logger="log/${myname}.log"
-limit=0
-printremediation="0"
+# Not a configuration key — always reset
 globalRemediation=""
 
-# Get the flags
-# If you add an option here, please
-# remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:p args
+# ---------------------------------------------------------------------------
+# Unified configuration loading
+# Priority (lowest → highest): defaults → config file → env vars → CLI flags
+# ---------------------------------------------------------------------------
+
+# Step 1: Apply hardcoded defaults
+_cfg_apply_defaults
+
+# Step 2: Load configuration file
+# Search order: -f flag value → DBS_CONFIG_FILE env → ./docker-bench-security.conf → /etc/docker-bench-security.conf
+_dbs_cfg_file=""
+# Pre-scan for -f flag to determine config file path before full getopts
+while getopts f: _pre_args 2>/dev/null; do
+  case $_pre_args in
+  f) _dbs_cfg_file="$OPTARG"; _dbs_cfg_file_explicit=1 ;;
+  esac
+done
+OPTIND=1  # reset getopts pointer
+
+if [ -z "$_dbs_cfg_file" ]; then
+  _dbs_cfg_file="${DBS_CONFIG_FILE:-}"
+  [ -n "$_dbs_cfg_file" ] && _dbs_cfg_file_explicit=1
+fi
+if [ -z "$_dbs_cfg_file" ]; then
+  if [ -f "./docker-bench-security.conf" ]; then
+    _dbs_cfg_file="./docker-bench-security.conf"
+  elif [ -f "/etc/docker-bench-security.conf" ]; then
+    _dbs_cfg_file="/etc/docker-bench-security.conf"
+  fi
+fi
+
+if [ -n "$_dbs_cfg_file" ]; then
+  # If explicitly specified (via -f or DBS_CONFIG_FILE), the file must exist
+  if [ -n "${_dbs_cfg_file_explicit:-}" ] && [ ! -f "$_dbs_cfg_file" ]; then
+    printf "Error: configuration file not found: %s\n" "$_dbs_cfg_file" >&2
+    exit 1
+  fi
+  if ! _cfg_load_file "$_dbs_cfg_file"; then
+    printf "Failed to load configuration file: %s\n" "$_dbs_cfg_file" >&2
+    exit 1
+  fi
+fi
+
+# Step 3: Load environment variables (DBS_* prefix)
+_cfg_load_env
+
+# Step 4: Parse CLI flags — these override everything above
+while getopts bf:hl:u:c:e:i:x:t:n:p args
 do
   case $args in
-  b) nocolor="nocolor";;
+  b) nocolor="nocolor";       _cli_nocolor=1 ;;
+  f) ;; # already handled in pre-scan
   h) usage; exit 0 ;;
-  l) logger="$OPTARG" ;;
-  u) dockertrustusers="$OPTARG" ;;
-  c) check="$OPTARG" ;;
-  e) checkexclude="$OPTARG" ;;
-  i) include="$OPTARG" ;;
-  x) exclude="$OPTARG" ;;
-  t) labels="$OPTARG" ;;
-  n) limit="$OPTARG" ;;
-  p) printremediation="1" ;;
+  l) logger="$OPTARG";        _cli_logger=1 ;;
+  u) dockertrustusers="$OPTARG"; _cli_dockertrustusers=1 ;;
+  c) check="$OPTARG";         _cli_check=1 ;;
+  e) checkexclude="$OPTARG";  _cli_checkexclude=1 ;;
+  i) include="$OPTARG";       _cli_include=1 ;;
+  x) exclude="$OPTARG";       _cli_exclude=1 ;;
+  t) labels="$OPTARG";        _cli_labels=1 ;;
+  n) limit="$OPTARG";         _cli_limit=1 ;;
+  p) printremediation="1";    _cli_printremediation=1 ;;
   *) usage; exit 1 ;;
   esac
 done
+
+# Step 5: Mark which values came from CLI
+_cfg_mark_cli
 
 # Load output formating
 . $LIBEXEC/functions/output_lib.sh
 
 yell_info
+
+# Print configuration source summary for debugging
+cfg_print_summary
 
 # Warn if not root
 if [ "$(id -u)" != "0" ]; then
