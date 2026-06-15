@@ -26,13 +26,10 @@ readonly myname
 export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 
 # Check for required program(s)
-req_programs 'awk docker grep sed stat tail tee tr wc xargs'
+req_programs 'awk grep sed stat tail tee tr wc xargs'
 
-# Ensure we can connect to docker daemon
-if ! docker ps -q >/dev/null 2>&1; then
-  printf "Error connecting to docker daemon (does docker ps work?)\n"
-  exit 1
-fi
+# Load runtime discovery module
+. $LIBEXEC/functions/runtime_lib.sh
 
 usage () {
   cat <<EOF
@@ -124,43 +121,33 @@ beginjson "$version" "$(date +%s)"
 main () {
   logit "\n${bldylw}Section A - Check results${txtrst}"
 
-  # Get configuration location
-  get_docker_configuration_file
+  # Discover container runtime and classify its state
+  runtime_discover
+  local runtime_rc=$?
 
-  # If there is a container with label docker_bench_security, memorize it:
-  benchcont="nil"
-  for c in $(docker ps | sed '1d' | awk '{print $NF}'); do
-    if docker inspect --format '{{ .Config.Labels }}' "$c" | \
-     grep -e 'docker.bench.security' >/dev/null 2>&1; then
-      benchcont="$c"
+  if [ "$RUNTIME_STATUS" != "available" ]; then
+    info "Container runtime status: $RUNTIME_STATUS"
+    if [ -n "$RUNTIME_ERROR" ]; then
+      info "  * $RUNTIME_ERROR"
     fi
-  done
+    info "  * Docker-dependent checks will be skipped"
+  fi
 
-  # Get the image id of the docker_bench_security_image, memorize it:
-  benchimagecont="nil"
-  for c in $(docker images | sed '1d' | awk '{print $3}'); do
-    if docker inspect --format '{{ .Config.Labels }}' "$c" | \
-     grep -e 'docker.bench.security' >/dev/null 2>&1; then
-      benchimagecont="$c"
-    fi
-  done
-
-  # Format LABELS
+  # Format LABELS for filtering
   for label in $(echo "$labels" | sed 's/,/ /g'); do
     LABELS="$LABELS --filter label=$label"
   done
 
-  if [ -n "$include" ]; then
-    pattern=$(echo "$include" | sed 's/,/|/g')
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -E "$pattern")
-    images=$(docker images $LABELS| sed '1d' | grep -E "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
-  elif [ -n "$exclude" ]; then
-    pattern=$(echo "$exclude" | sed 's/,/|/g')
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -Ev "$pattern")
-    images=$(docker images $LABELS| sed '1d' | grep -Ev "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
+  # Populate containers and images only when runtime is available
+  if [ "$RUNTIME_STATUS" = "available" ]; then
+    # Get configuration location (requires dockerd process inspection)
+    get_docker_configuration_file
+
+    containers=$(runtime_list_containers "$LABELS" "$include" "$exclude")
+    images=$(runtime_list_images "$LABELS" "$include" "$exclude")
   else
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont")
-    images=$(docker images -q $LABELS| grep -v "$benchcont")
+    containers=""
+    images=""
   fi
 
   for test in $LIBEXEC/tests/*.sh; do
