@@ -27,6 +27,7 @@ check_5_1() {
   local remediationImpact="Disabling swarm mode will impact the operation of Docker Enterprise components if these are in use."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "DOCKER" "$id" "$desc" || return
 
   if docker info 2>/dev/null | grep -e "Swarm:*\sinactive\s*" >/dev/null 2>&1; then
     pass -s "$check"
