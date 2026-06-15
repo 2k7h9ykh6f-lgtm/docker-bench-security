@@ -131,7 +131,6 @@ check_2_6() {
   local remediationImpact="aufs is the only storage driver that allows containers to share executable and shared  library memory. Its use should be reviewed in line with your organization's security policy."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
-  require_cap "DOCKER" "$id" "$desc" || return
 
   if docker info 2>/dev/null | grep -e "^\sStorage Driver:\s*aufs\s*$" >/dev/null 2>&1; then
     warn -s "$check"
@@ -295,7 +294,6 @@ check_2_13() {
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
-  require_cap "DOCKER" "$id" "$desc" || return
 
   if docker info --format '{{ .LoggingDriver }}' | grep 'json-file' >/dev/null 2>&1; then
     warn -s "$check"
@@ -384,7 +382,6 @@ check_2_17() {
   local remediationImpact="A misconfigured seccomp profile could possibly interrupt your container environment. You should therefore exercise extreme care if you choose to override the default settings."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
-  require_cap "DOCKER" "$id" "$desc" || return
 
   if docker info --format '{{ .SecurityOptions }}' | grep 'name=seccomp,profile=default' 2>/dev/null 1>&2; then
     pass -c "$check"
@@ -396,16 +393,15 @@ check_2_17() {
 }
 
 check_2_18() {
+  docker_version=$(docker version | grep -i -A2 '^server' | grep ' Version:' \
+    | awk '{print $NF; exit}' | tr -d '[:alpha:]-,.' | cut -c 1-4)
+
   local id="2.18"
   local desc="Ensure that experimental features are not implemented in production (Scored)"
   local remediation="You should not pass --experimental as a runtime parameter to the Docker daemon on production systems."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
-  require_cap "DOCKER" "$id" "$desc" || return
-
-  docker_version=$(docker version | grep -i -A2 '^server' | grep ' Version:' \
-    | awk '{print $NF; exit}' | tr -d '[:alpha:]-,.' | cut -c 1-4)
 
   if [ "$docker_version" -le 1903 ]; then
     if docker version -f '{{.Server.Experimental}}' | grep false 2>/dev/null 1>&2; then

@@ -14,7 +14,7 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
-. $LIBEXEC/functions/perm_lib.sh
+. $LIBEXEC/functions/privilege_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -26,13 +26,13 @@ readonly myname
 
 export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 
-# Check for required program(s)
-req_programs 'awk docker grep sed stat tail tee tr wc xargs'
-
-# Ensure we can connect to docker daemon (soft check — degraded mode if not)
-if ! docker ps -q >/dev/null 2>&1; then
-  DEGRADED_MODE="yes"
+# Check for docker separately — it may be absent in degraded mode
+if [ "$HAS_DOCKER" -eq 1 ]; then
+  req_programs 'docker'
 fi
+
+# Check for required program(s) that don't need Docker
+req_programs 'awk grep sed stat tail tee tr wc xargs'
 
 usage () {
   cat <<EOF
@@ -105,12 +105,20 @@ done
 
 yell_info
 
-# Probe runtime capabilities and report structured capability status
-probe_capabilities
-log_capabilities
+# Report privilege level
+if [ "$IS_ROOT" -eq 0 ]; then
+  warn "$(yell 'Not running as root. Some checks will be skipped.')\n"
+fi
+if [ "$HAS_DOCKER" -eq 0 ]; then
+  if [ "$HAS_DOCKER_SOCKET" -eq 0 ]; then
+    warn "$(yell 'Docker socket not found. Docker-dependent checks will be skipped.')\n"
+  else
+    warn "$(yell 'Cannot connect to Docker daemon. Docker-dependent checks will be skipped.')\n"
+  fi
+fi
 
 # Total Score
-# Warn Scored -1, Pass Scored +1, Skip 0, Not Scored 0
+# Warn Scored -1, Pass Scored +1, Not Score -0
 
 totalChecks=0
 currentScore=0
@@ -125,12 +133,13 @@ main () {
   # Get configuration location
   get_docker_configuration_file
 
+  # Docker-dependent setup: container/image enumeration
   benchcont="nil"
   benchimagecont="nil"
   containers=""
   images=""
 
-  if ! is_degraded; then
+  if [ "$HAS_DOCKER" -eq 1 ]; then
     # If there is a container with label docker_bench_security, memorize it:
     for c in $(docker ps | sed '1d' | awk '{print $NF}'); do
       if docker inspect --format '{{ .Config.Labels }}' "$c" | \
@@ -217,8 +226,7 @@ main () {
 
   logit "\n\n${bldylw}Section C - Score${txtrst}\n"
   info "Checks: $totalChecks"
-  info "Score: $currentScore"
-  info "Skipped: $skippedChecks\n"
+  info "Score: $currentScore\n"
 
   endjson "$totalChecks" "$currentScore" "$(date +%s)"
 }

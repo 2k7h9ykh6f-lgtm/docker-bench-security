@@ -91,10 +91,6 @@ docker_daemon_configuration_level1() {
 }
 
 docker_daemon_files() {
-  if ! has_cap ROOT; then
-    logit "\n${bldmag}[SKIP]${txtrst} Section 3 - Docker daemon configuration files (requires root)" | tee -a "$logger"
-    return
-  fi
   check_3
   check_3_1
   check_3_2
@@ -129,10 +125,6 @@ docker_daemon_files_level1() {
 }
 
 container_images() {
-  if ! has_cap DOCKER; then
-    logit "\n${bldmag}[SKIP]${txtrst} Section 4 - Container images (requires docker access)" | tee -a "$logger"
-    return
-  fi
   check_4
   check_4_1
   check_4_2
@@ -155,10 +147,6 @@ container_images_level1() {
 }
 
 container_runtime() {
-  if ! has_cap DOCKER; then
-    logit "\n${bldmag}[SKIP]${txtrst} Section 5 - Container runtime (requires docker access)" | tee -a "$logger"
-    return
-  fi
   check_5
   check_running_containers
   check_5_1
@@ -202,10 +190,6 @@ container_runtime_level1() {
 }
 
 docker_security_operations() {
-  if ! has_cap DOCKER; then
-    logit "\n${bldmag}[SKIP]${txtrst} Section 6 - Docker security operations (requires docker access)" | tee -a "$logger"
-    return
-  fi
   check_6
   check_6_1
   check_6_2
@@ -220,10 +204,6 @@ docker_security_operations_level1() {
 }
 
 docker_swarm_configuration() {
-  if ! has_cap DOCKER; then
-    logit "\n${bldmag}[SKIP]${txtrst} Section 7 - Docker swarm configuration (requires docker access)" | tee -a "$logger"
-    return
-  fi
   check_7
   check_7_1
   check_7_2
@@ -243,10 +223,6 @@ docker_swarm_configuration_level1() {
 }
 
 docker_enterprise_configuration() {
-  if ! has_cap DOCKER || ! has_cap ROOT; then
-    logit "\n${bldmag}[SKIP]${txtrst} Section 8 - Docker enterprise configuration (requires root and docker access)" | tee -a "$logger"
-    return
-  fi
   check_8
   check_product_license
   check_8_1
@@ -584,10 +560,6 @@ cis_controls_v8_ig3() {
 
 # Community contributed
 community() {
-  if ! has_cap DOCKER; then
-    logit "\n${bldmag}[SKIP]${txtrst} Community checks (requires docker access)" | tee -a "$logger"
-    return
-  fi
   community_checks
 }
 
