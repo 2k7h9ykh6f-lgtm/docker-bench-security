@@ -14,7 +14,6 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
-. $LIBEXEC/functions/config_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -27,13 +26,10 @@ readonly myname
 export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 
 # Check for required program(s)
-req_programs 'awk docker grep sed stat tail tee tr wc xargs'
+req_programs 'awk grep sed stat tail tee tr wc xargs'
 
-# Ensure we can connect to docker daemon
-if ! docker ps -q >/dev/null 2>&1; then
-  printf "Error connecting to docker daemon (does docker ps work?)\n"
-  exit 1
-fi
+# Load runtime discovery module
+. $LIBEXEC/functions/runtime_lib.sh
 
 usage () {
   cat <<EOF
@@ -64,13 +60,6 @@ Options:
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
 
-Configuration:
-  Config file: ./docker-bench-security.conf or /etc/docker-bench-security.conf
-  Override config file path with DBS_CONFIG_FILE environment variable.
-  Environment variables (DBS_* prefix) override config file values.
-  CLI flags override all other sources.
-  See docker-bench-security.conf.example for all available settings.
-
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
 Released under the Apache-2.0 License.
@@ -82,15 +71,10 @@ if [ ! -d log ]; then
   mkdir log
 fi
 
+logger="log/${myname}.log"
+limit=0
+printremediation="0"
 globalRemediation=""
-
-# Load configuration: defaults -> config file -> environment -> CLI (below)
-config_set_defaults
-if ! config_load_file; then
-  printf "Error: Failed to load configuration file. Exiting.\n" >&2
-  exit 1
-fi
-config_load_env
 
 # Get the flags
 # If you add an option here, please
@@ -98,31 +82,23 @@ config_load_env
 while getopts bhl:u:c:e:i:x:t:n:p args
 do
   case $args in
-  b) config_set_from_cli nocolor "nocolor" "-b";;
+  b) nocolor="nocolor";;
   h) usage; exit 0 ;;
-  l) config_set_from_cli logger "$OPTARG" "-l";;
-  u) config_set_from_cli dockertrustusers "$OPTARG" "-u";;
-  c) config_set_from_cli check "$OPTARG" "-c";;
-  e) config_set_from_cli checkexclude "$OPTARG" "-e";;
-  i) config_set_from_cli include "$OPTARG" "-i";;
-  x) config_set_from_cli exclude "$OPTARG" "-x";;
-  t) config_set_from_cli labels "$OPTARG" "-t";;
-  n) config_set_from_cli limit "$OPTARG" "-n";;
-  p) config_set_from_cli printremediation "1" "-p";;
+  l) logger="$OPTARG" ;;
+  u) dockertrustusers="$OPTARG" ;;
+  c) check="$OPTARG" ;;
+  e) checkexclude="$OPTARG" ;;
+  i) include="$OPTARG" ;;
+  x) exclude="$OPTARG" ;;
+  t) labels="$OPTARG" ;;
+  n) limit="$OPTARG" ;;
+  p) printremediation="1" ;;
   *) usage; exit 1 ;;
   esac
 done
 
-# Validate configuration
-if ! config_validate; then
-  exit 1
-fi
-
 # Load output formating
 . $LIBEXEC/functions/output_lib.sh
-
-# Print effective configuration
-config_print_summary
 
 yell_info
 
@@ -145,43 +121,33 @@ beginjson "$version" "$(date +%s)"
 main () {
   logit "\n${bldylw}Section A - Check results${txtrst}"
 
-  # Get configuration location
-  get_docker_configuration_file
+  # Discover container runtime and classify its state
+  runtime_discover
+  local runtime_rc=$?
 
-  # If there is a container with label docker_bench_security, memorize it:
-  benchcont="nil"
-  for c in $(docker ps | sed '1d' | awk '{print $NF}'); do
-    if docker inspect --format '{{ .Config.Labels }}' "$c" | \
-     grep -e 'docker.bench.security' >/dev/null 2>&1; then
-      benchcont="$c"
+  if [ "$RUNTIME_STATUS" != "available" ]; then
+    info "Container runtime status: $RUNTIME_STATUS"
+    if [ -n "$RUNTIME_ERROR" ]; then
+      info "  * $RUNTIME_ERROR"
     fi
-  done
+    info "  * Docker-dependent checks will be skipped"
+  fi
 
-  # Get the image id of the docker_bench_security_image, memorize it:
-  benchimagecont="nil"
-  for c in $(docker images | sed '1d' | awk '{print $3}'); do
-    if docker inspect --format '{{ .Config.Labels }}' "$c" | \
-     grep -e 'docker.bench.security' >/dev/null 2>&1; then
-      benchimagecont="$c"
-    fi
-  done
-
-  # Format LABELS
+  # Format LABELS for filtering
   for label in $(echo "$labels" | sed 's/,/ /g'); do
     LABELS="$LABELS --filter label=$label"
   done
 
-  if [ -n "$include" ]; then
-    pattern=$(echo "$include" | sed 's/,/|/g')
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -E "$pattern")
-    images=$(docker images $LABELS| sed '1d' | grep -E "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
-  elif [ -n "$exclude" ]; then
-    pattern=$(echo "$exclude" | sed 's/,/|/g')
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -Ev "$pattern")
-    images=$(docker images $LABELS| sed '1d' | grep -Ev "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
+  # Populate containers and images only when runtime is available
+  if [ "$RUNTIME_STATUS" = "available" ]; then
+    # Get configuration location (requires dockerd process inspection)
+    get_docker_configuration_file
+
+    containers=$(runtime_list_containers "$LABELS" "$include" "$exclude")
+    images=$(runtime_list_images "$LABELS" "$include" "$exclude")
   else
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont")
-    images=$(docker images -q $LABELS| grep -v "$benchcont")
+    containers=""
+    images=""
   fi
 
   for test in $LIBEXEC/tests/*.sh; do
