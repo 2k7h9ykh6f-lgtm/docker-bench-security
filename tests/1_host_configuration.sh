@@ -23,6 +23,7 @@ check_1_1_1() {
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "DOCKER" "$id" "$desc" || return
 
   docker_root_dir=$(docker info -f '{{ .DockerRootDir }}')
   if docker info | grep -q userns ; then
@@ -45,6 +46,7 @@ check_1_1_2() {
   local remediationImpact="Only trust user are allow to build and execute containers as normal user."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "ROOT" "$id" "$desc" || return
 
   docker_users=$(grep 'docker' /etc/group)
   if command -v getent >/dev/null 2>&1; then
@@ -87,6 +89,7 @@ check_1_1_3() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/usr/bin/dockerd"
   if command -v auditctl >/dev/null 2>&1; then
@@ -115,6 +118,7 @@ check_1_1_4() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/run/containerd"
   if command -v auditctl >/dev/null 2>&1; then
@@ -143,6 +147,7 @@ check_1_1_5() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   directory="/var/lib/docker"
   if [ -d "$directory" ]; then
@@ -177,6 +182,7 @@ check_1_1_6() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   directory="/etc/docker"
   if [ -d "$directory" ]; then
@@ -212,6 +218,7 @@ check_1_1_7() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="$(get_service_file docker.service)"
   if [ -f "$file" ]; then
@@ -247,6 +254,7 @@ check_1_1_8() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="$(get_service_file containerd.sock)"
   if [ -e "$file" ]; then
@@ -281,6 +289,7 @@ check_1_1_9() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="$(get_service_file docker.socket)"
   if [ -e "$file" ]; then
@@ -315,6 +324,7 @@ check_1_1_10() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/etc/default/docker"
   if [ -f "$file" ]; then
@@ -349,6 +359,7 @@ check_1_1_11() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/etc/docker/daemon.json"
   if [ -f "$file" ]; then
@@ -383,6 +394,7 @@ check_1_1_12() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/etc/containerd/config.toml"
   if [ -f "$file" ]; then
@@ -417,6 +429,7 @@ check_1_1_13() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/etc/sysconfig/docker"
   if [ -f "$file" ]; then
@@ -451,6 +464,7 @@ check_1_1_14() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/usr/bin/containerd"
   if [ -f "$file" ]; then
@@ -485,6 +499,7 @@ check_1_1_15() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/usr/bin/containerd-shim"
   if [ -f "$file" ]; then
@@ -519,6 +534,7 @@ check_1_1_16() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/usr/bin/containerd-shim-runc-v1"
   if [ -f "$file" ]; then
@@ -553,6 +569,7 @@ check_1_1_17() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/usr/bin/containerd-shim-runc-v2"
   if [ -f "$file" ]; then
@@ -587,6 +604,7 @@ check_1_1_18() {
   local remediationImpact="Audit can generate large log files. So you need to make sure that they are rotated and archived periodically. Create a separate partition for audit logs to avoid filling up other critical partitions."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "AUDIT" "$id" "$desc" || return
 
   file="/usr/bin/runc"
   if [ -f "$file" ]; then
@@ -640,6 +658,7 @@ check_1_2_2() {
   local remediationImpact="You should perform a risk assessment regarding Docker version updates and review how they may impact your operations."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
+  require_cap "DOCKER" "$id" "$desc" || return
 
   docker_version=$(docker version | grep -i -A2 '^server' | grep ' Version:' \
     | awk '{print $NF; exit}' | tr -d '[:alpha:]-,')
