@@ -14,6 +14,7 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
+. $LIBEXEC/functions/skip_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -49,6 +50,8 @@ Example:
       sh docker-bench-security.sh -e host_configuration,check_2_8
   - Run just the container_images checks except "4.5 - Ensure Content trust for Docker is Enabled":
       sh docker-bench-security.sh -c container_images -e check_4_5
+  - Skip checks listed in a config file:
+      sh docker-bench-security.sh -S /path/to/skip.conf
 
 Options:
   -b           optional  Do not print colors
@@ -57,6 +60,7 @@ Options:
   -u USERS     optional  Comma delimited list of trusted docker user(s)
   -c CHECK     optional  Comma delimited list of specific check(s) id
   -e CHECK     optional  Comma delimited list of specific check(s) id to exclude
+  -S FILE      optional  Path to skip/exclude config file (one check ID per line, # for comments)
   -i INCLUDE   optional  Comma delimited list of patterns within a container or image name to check
   -x EXCLUDE   optional  Comma delimited list of patterns within a container or image name to exclude from check
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
@@ -78,11 +82,12 @@ logger="log/${myname}.log"
 limit=0
 printremediation="0"
 globalRemediation=""
+skip_config=""
 
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:p args
+while getopts bhl:u:c:e:S:i:x:t:n:p args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -91,6 +96,7 @@ do
   u) dockertrustusers="$OPTARG" ;;
   c) check="$OPTARG" ;;
   e) checkexclude="$OPTARG" ;;
+  S) skip_config="$OPTARG" ;;
   i) include="$OPTARG" ;;
   x) exclude="$OPTARG" ;;
   t) labels="$OPTARG" ;;
@@ -102,6 +108,21 @@ done
 
 # Load output formating
 . $LIBEXEC/functions/output_lib.sh
+
+# --------------------------------------------------------------------------------------------
+# Parse and validate skip/exclude rules from all sources
+# --------------------------------------------------------------------------------------------
+if ! parse_skip_rules "$skip_config" "$checkexclude"; then
+  printf "ERROR: invalid skip rules detected (see above). Aborting.\n" >&2
+  exit 1
+fi
+
+if [ -n "$SKIP_EXCLUDE_LIST" ]; then
+  build_skip_regex
+  # Override checkexclude with the validated, normalized list so the main loop
+  # uses clean function names.
+  checkexclude="$SKIP_EXCLUDE_LIST"
+fi
 
 yell_info
 
@@ -167,7 +188,7 @@ main () {
     . "$test"
   done
 
-  if [ -z "$check" ] && [ ! "$checkexclude" ]; then
+  if [ -z "$check" ] && [ -z "$SKIP_EXCLUDE_LIST" ]; then
     # No options just run
     cis
   elif [ -z "$check" ]; then
@@ -180,14 +201,12 @@ main () {
       echo "Check \"$c\" doesn't seem to exist."
       continue
     fi
-    if [ -z "$checkexclude" ]; then
+    if [ -z "$SKIP_REGEX" ]; then
       # No excludes just run the checks specified
       "$c"
     else
-      # Exludes specified and check exists
-      checkexcluded="$(echo ",$checkexclude" | sed -e 's/^/\^/g' -e 's/,/\$|/g' -e 's/$/\$/g')"
-
-      if echo "$c" | grep -E "$checkexcluded" 2>/dev/null 1>&2; then
+      # Excludes specified -- use the pre-validated regex
+      if echo "$c" | grep -E "$SKIP_REGEX" 2>/dev/null 1>&2; then
         # Excluded
         continue
       elif echo "$c" | grep -vE 'check_[0-9]|check_[a-z]' 2>/dev/null 1>&2; then
@@ -199,7 +218,7 @@ main () {
       fi
 
       for lc in $loop_checks; do
-        if echo "$lc" | grep -vE "$checkexcluded" 2>/dev/null 1>&2; then
+        if echo "$lc" | grep -vE "$SKIP_REGEX" 2>/dev/null 1>&2; then
           # Not excluded
           "$lc"
         fi
