@@ -6,6 +6,10 @@ abspath () { case "$1" in /*)printf "%s\n" "$1";; *)printf "%s\n" "$PWD/$1";; es
 # Audit rules default path
 auditrules="/etc/audit/audit.rules"
 
+# Docker environment defaults (overridden by detect_docker_environment)
+DOCKER_CONFIG_DIR="/etc/docker"
+DOCKER_SYSTEMD_SCOPE="system"
+
 # Check for required program(s)
 req_programs() {
   for p in $1; do
@@ -110,8 +114,8 @@ get_docker_configuration_file() {
     CONFIG_FILE="$FILE"
     return
   fi
-  if [ -f '/etc/docker/daemon.json' ]; then
-    CONFIG_FILE='/etc/docker/daemon.json'
+  if [ -f "${DOCKER_CONFIG_DIR}/daemon.json" ]; then
+    CONFIG_FILE="${DOCKER_CONFIG_DIR}/daemon.json"
     return
   fi
   CONFIG_FILE='/dev/null'
@@ -131,7 +135,29 @@ get_docker_configuration_file_args() {
 
 get_service_file() {
   SERVICE="$1"
+  SCOPE="${2:-$DOCKER_SYSTEMD_SCOPE}"
 
+  # User-level systemd paths (rootless Docker)
+  if [ "$SCOPE" = "user" ]; then
+    if [ -f "${HOME}/.config/systemd/user/$SERVICE" ]; then
+      echo "${HOME}/.config/systemd/user/$SERVICE"
+      return
+    fi
+    if [ -f "/usr/lib/systemd/user/$SERVICE" ]; then
+      echo "/usr/lib/systemd/user/$SERVICE"
+      return
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+      local fragpath
+      fragpath="$(systemctl --user show -p FragmentPath "$SERVICE" 2>/dev/null | sed 's/.*=//')"
+      if [ -n "$fragpath" ]; then
+        echo "$fragpath"
+        return
+      fi
+    fi
+  fi
+
+  # System-level systemd paths (rootful Docker, or fallback)
   if [ -f "/etc/systemd/system/$SERVICE" ]; then
     echo "/etc/systemd/system/$SERVICE"
     return
@@ -144,7 +170,7 @@ get_service_file() {
     find /run -name "$SERVICE" | head -n1
     return
   fi
-  if [ "$(systemctl show -p FragmentPath "$SERVICE" | sed 's/.*=//')" != "" ]; then
+  if [ "$(systemctl show -p FragmentPath "$SERVICE" 2>/dev/null | sed 's/.*=//')" != "" ]; then
     systemctl show -p FragmentPath "$SERVICE" | sed 's/.*=//'
     return
   fi
@@ -160,4 +186,100 @@ yell "# ------------------------------------------------------------------------
 # Checks for dozens of common best-practices around deploying Docker containers in production.
 # Based on the CIS Docker Benchmark 1.6.0.
 # --------------------------------------------------------------------------------------------"
+}
+
+# detect_docker_environment() - Unified Docker environment probe
+#
+# Detects whether Docker is running in rootful or rootless mode and resolves
+# the actual paths for the Docker socket, containerd socket, configuration
+# directory, and systemd service scope.
+#
+# Sets the following global variables:
+#   DOCKER_IS_ROOTLESS      - "true" if rootless, "false" if rootful
+#   DOCKER_SOCKET_PATH      - Resolved Docker socket path
+#   DOCKER_SOCKET_ACCESS    - "ok", "missing", or "permission_denied"
+#   CONTAINERD_SOCKET_PATH  - Resolved containerd socket path
+#   DOCKER_CONFIG_DIR       - Docker config directory
+#   DOCKER_SYSTEMD_SCOPE    - "system" or "user"
+#
+# Detection strategy (in order of precedence):
+#   1. Parse `docker info` SecurityOptions for "rootless"
+#   2. Check DOCKER_HOST environment variable for unix socket path
+#   3. If rootless and no DOCKER_HOST, try $XDG_RUNTIME_DIR/docker.sock
+#   4. Fall back to default /var/run/docker.sock (rootful default)
+#
+# Commands actually executed:
+#   - docker info (piped to grep for "rootless")
+#   - shell builtins [ -S / -r / -w ] on candidate socket paths
+#   No systemctl, stat, or find calls are made by this probe.
+#
+# Compatibility:
+#   When Docker runs as a traditional rootful daemon and DOCKER_HOST is unset,
+#   all resolved paths match the original hardcoded defaults.
+detect_docker_environment() {
+  # --- Step 1: Detect rootless mode via docker info ---
+  DOCKER_IS_ROOTLESS="false"
+  if docker info 2>/dev/null | grep -qi 'rootless'; then
+    DOCKER_IS_ROOTLESS="true"
+  fi
+
+  # --- Step 2: Resolve Docker socket path ---
+  DOCKER_SOCKET_PATH=""
+  DOCKER_SOCKET_ACCESS="missing"
+
+  # 2a: Check DOCKER_HOST environment variable for a unix socket
+  if [ -n "$DOCKER_HOST" ]; then
+    case "$DOCKER_HOST" in
+      unix://*)
+        DOCKER_SOCKET_PATH="${DOCKER_HOST#unix://}"
+        ;;
+    esac
+  fi
+
+  # 2b: If rootless and DOCKER_HOST didn't provide a socket, try XDG_RUNTIME_DIR
+  if [ -z "$DOCKER_SOCKET_PATH" ] && [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+    if [ -n "$XDG_RUNTIME_DIR" ]; then
+      DOCKER_SOCKET_PATH="$XDG_RUNTIME_DIR/docker.sock"
+    fi
+  fi
+
+  # 2c: Fall back to default rootful socket
+  if [ -z "$DOCKER_SOCKET_PATH" ]; then
+    DOCKER_SOCKET_PATH="/var/run/docker.sock"
+  fi
+
+  # --- Step 3: Check socket accessibility ---
+  if [ -S "$DOCKER_SOCKET_PATH" ]; then
+    if [ -r "$DOCKER_SOCKET_PATH" ] && [ -w "$DOCKER_SOCKET_PATH" ]; then
+      DOCKER_SOCKET_ACCESS="ok"
+    else
+      DOCKER_SOCKET_ACCESS="permission_denied"
+    fi
+  else
+    DOCKER_SOCKET_ACCESS="missing"
+  fi
+
+  # --- Step 4: Resolve containerd socket path ---
+  if [ "$DOCKER_IS_ROOTLESS" = "true" ] && [ -n "$XDG_RUNTIME_DIR" ]; then
+    CONTAINERD_SOCKET_PATH="$XDG_RUNTIME_DIR/containerd/containerd.sock"
+    if [ ! -S "$CONTAINERD_SOCKET_PATH" ]; then
+      CONTAINERD_SOCKET_PATH="$XDG_RUNTIME_DIR/docker/containerd/containerd.sock"
+    fi
+  else
+    CONTAINERD_SOCKET_PATH="/run/containerd/containerd.sock"
+  fi
+
+  # --- Step 5: Resolve Docker config directory ---
+  if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+    DOCKER_CONFIG_DIR="${HOME}/.config/docker"
+  else
+    DOCKER_CONFIG_DIR="/etc/docker"
+  fi
+
+  # --- Step 6: Set systemd service scope ---
+  if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+    DOCKER_SYSTEMD_SCOPE="user"
+  else
+    DOCKER_SYSTEMD_SCOPE="system"
+  fi
 }

@@ -34,6 +34,9 @@ if ! docker ps -q >/dev/null 2>&1; then
   exit 1
 fi
 
+# Detect Docker environment (rootful vs rootless, socket paths, config dirs)
+detect_docker_environment
+
 usage () {
   cat <<EOF
 Docker Bench for Security - Docker, Inc. (c) 2015-$(date +"%Y")
@@ -105,8 +108,8 @@ done
 
 yell_info
 
-# Warn if not root
-if [ "$(id -u)" != "0" ]; then
+# Warn if not root (unless running against a rootless daemon)
+if [ "$(id -u)" != "0" ] && [ "$DOCKER_IS_ROOTLESS" != "true" ]; then
   warn "$(yell 'Some tests might require root to run')\n"
   sleep 3
 fi

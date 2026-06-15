@@ -111,18 +111,27 @@ check_3_4() {
 
 check_3_5() {
   local id="3.5"
-  local desc="Ensure that the /etc/docker directory ownership is set to root:root (Automated)"
-  local remediation="You should run the following command: chown root:root /etc/docker. This sets the ownership and group ownership for the directory to root."
+  local desc="Ensure that the $DOCKER_CONFIG_DIR directory ownership is set to root:root (Automated)"
+  local remediation="You should run the following command: chown root:root $DOCKER_CONFIG_DIR. This sets the ownership and group ownership for the directory to root."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  directory="/etc/docker"
+  directory="$DOCKER_CONFIG_DIR"
   if [ -d "$directory" ]; then
-    if [ "$(stat -c %u%g $directory)" -eq 00 ]; then
-      pass -s "$check"
-      logcheckresult "PASS"
-      return
+    if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+      # In rootless mode, expect current user ownership
+      if [ "$(stat -c %u "$directory")" -eq "$(id -u)" ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
+    else
+      if [ "$(stat -c %u%g "$directory")" -eq 00 ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
     fi
     warn -s "$check"
     warn "     * Wrong ownership for $directory"
@@ -136,15 +145,15 @@ check_3_5() {
 
 check_3_6() {
   local id="3.6"
-  local desc="Ensure that /etc/docker directory permissions are set to 755 or more restrictively (Automated)"
-  local remediation="You should run the following command: chmod 755 /etc/docker. This sets the permissions for the directory to 755."
+  local desc="Ensure that $DOCKER_CONFIG_DIR directory permissions are set to 755 or more restrictively (Automated)"
+  local remediation="You should run the following command: chmod 755 $DOCKER_CONFIG_DIR. This sets the permissions for the directory to 755."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  directory="/etc/docker"
+  directory="$DOCKER_CONFIG_DIR"
   if [ -d "$directory" ]; then
-    if [ "$(stat -c %a $directory)" -le 755 ]; then
+    if [ "$(stat -c %a "$directory")" -le 755 ]; then
       pass -s "$check"
       logcheckresult "PASS"
       return
@@ -394,17 +403,32 @@ check_3_14() {
 check_3_15() {
   local id="3.15"
   local desc="Ensure that the Docker socket file ownership is set to root:docker (Automated)"
-  local remediation="You should run the following command: chown root:docker /var/run/docker.sock. This sets the ownership to root and group ownership to docker for the default Docker socket file."
+  local remediation="You should run the following command: chown root:docker $DOCKER_SOCKET_PATH. This sets the ownership to root and group ownership to docker for the default Docker socket file."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="/var/run/docker.sock"
+  file="$DOCKER_SOCKET_PATH"
+  if [ "$DOCKER_SOCKET_ACCESS" = "permission_denied" ]; then
+    warn -s "$check"
+    warn "      * Insufficient permissions to access $file"
+    logcheckresult "WARN" "Insufficient permissions to access $file"
+    return
+  fi
   if [ -S "$file" ]; then
-    if [ "$(stat -c %U:%G $file)" = 'root:docker' ]; then
-      pass -s "$check"
-      logcheckresult "PASS"
-      return
+    if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+      # In rootless mode, expect current user ownership
+      if [ "$(stat -c %u "$file")" -eq "$(id -u)" ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
+    else
+      if [ "$(stat -c %U:%G "$file")" = 'root:docker' ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
     fi
     warn -s "$check"
     warn "      * Wrong ownership for $file"
@@ -412,21 +436,27 @@ check_3_15() {
     return
   fi
   info -c "$check"
-  info "      * File not found"
-  logcheckresult "INFO" "File not found"
+  info "      * Socket not found at $file"
+  logcheckresult "INFO" "Socket not found at $file"
 }
 
 check_3_16() {
   local id="3.16"
   local desc="Ensure that the Docker socket file permissions are set to 660 or more restrictively (Automated)"
-  local remediation="You should run the following command: chmod 660 /var/run/docker.sock. This sets the file permissions of the Docker socket file to 660."
+  local remediation="You should run the following command: chmod 660 $DOCKER_SOCKET_PATH. This sets the file permissions of the Docker socket file to 660."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="/var/run/docker.sock"
+  file="$DOCKER_SOCKET_PATH"
+  if [ "$DOCKER_SOCKET_ACCESS" = "permission_denied" ]; then
+    warn -s "$check"
+    warn "      * Insufficient permissions to access $file"
+    logcheckresult "WARN" "Insufficient permissions to access $file"
+    return
+  fi
   if [ -S "$file" ]; then
-    if [ "$(stat -c %a $file)" -le 660 ]; then
+    if [ "$(stat -c %a "$file")" -le 660 ]; then
       pass -s "$check"
       logcheckresult "PASS"
       return
@@ -437,24 +467,33 @@ check_3_16() {
     return
   fi
   info -c "$check"
-  info "      * File not found"
-  logcheckresult "INFO" "File not found"
+  info "      * Socket not found at $file"
+  logcheckresult "INFO" "Socket not found at $file"
 }
 
 check_3_17() {
   local id="3.17"
   local desc="Ensure that the daemon.json file ownership is set to root:root (Automated)"
-  local remediation="You should run the following command: chown root:root /etc/docker/daemon.json. This sets the ownership and group ownership for the file to root."
+  local remediation="You should run the following command: chown root:root $DOCKER_CONFIG_DIR/daemon.json. This sets the ownership and group ownership for the file to root."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="/etc/docker/daemon.json"
+  file="$DOCKER_CONFIG_DIR/daemon.json"
   if [ -f "$file" ]; then
-    if [ "$(stat -c %U:%G $file)" = 'root:root' ]; then
-      pass -s "$check"
-      logcheckresult "PASS"
-      return
+    if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+      # In rootless mode, expect current user ownership
+      if [ "$(stat -c %u "$file")" -eq "$(id -u)" ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
+    else
+      if [ "$(stat -c %U:%G "$file")" = 'root:root' ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
     fi
     warn -s "$check"
     warn "      * Wrong ownership for $file"
@@ -469,14 +508,14 @@ check_3_17() {
 check_3_18() {
   local id="3.18"
   local desc="Ensure that daemon.json file permissions are set to 644 or more restrictive (Automated)"
-  local remediation="You should run the following command: chmod 644 /etc/docker/daemon.json. This sets the file permissions for this file to 644."
+  local remediation="You should run the following command: chmod 644 $DOCKER_CONFIG_DIR/daemon.json. This sets the file permissions for this file to 644."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="/etc/docker/daemon.json"
+  file="$DOCKER_CONFIG_DIR/daemon.json"
   if [ -f "$file" ]; then
-    if [ "$(stat -c %a $file)" -le 644 ]; then
+    if [ "$(stat -c %a "$file")" -le 644 ]; then
       pass -s "$check"
       logcheckresult "PASS"
       return
@@ -594,17 +633,26 @@ check_3_22() {
 check_3_23() {
   local id="3.23"
   local desc="Ensure that the Containerd socket file ownership is set to root:root (Automated)"
-  local remediation="You should run the following command: chown root:root /run/containerd/containerd.sock. This sets the ownership and group ownership for the file to root."
+  local remediation="You should run the following command: chown root:root $CONTAINERD_SOCKET_PATH. This sets the ownership and group ownership for the file to root."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="/run/containerd/containerd.sock"
+  file="$CONTAINERD_SOCKET_PATH"
   if [ -S "$file" ]; then
-    if [ "$(stat -c %U:%G $file)" = 'root:root' ]; then
-      pass -s "$check"
-      logcheckresult "PASS"
-      return
+    if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
+      # In rootless mode, expect current user ownership
+      if [ "$(stat -c %u "$file")" -eq "$(id -u)" ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
+    else
+      if [ "$(stat -c %U:%G "$file")" = 'root:root' ]; then
+        pass -s "$check"
+        logcheckresult "PASS"
+        return
+      fi
     fi
     warn -s "$check"
     warn "      * Wrong ownership for $file"
@@ -619,14 +667,14 @@ check_3_23() {
 check_3_24() {
   local id="3.24"
   local desc="Ensure that the Containerd socket file permissions are set to 660 or more restrictively (Automated)"
-  local remediation="You should run the following command: chmod 660 /run/containerd/containerd.sock. This sets the file permissions for this file to 660."
+  local remediation="You should run the following command: chmod 660 $CONTAINERD_SOCKET_PATH. This sets the file permissions for this file to 660."
   local remediationImpact="None."
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="/run/containerd/containerd.sock"
+  file="$CONTAINERD_SOCKET_PATH"
   if [ -S "$file" ]; then
-    if [ "$(stat -c %a $file)" -le 660 ]; then
+    if [ "$(stat -c %a "$file")" -le 660 ]; then
       pass -s "$check"
       logcheckresult "PASS"
       return
