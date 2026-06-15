@@ -125,12 +125,6 @@ docker_daemon_files_level1() {
 }
 
 container_images() {
-  if [ "$RUNTIME_STATUS" != "" ] && [ "$RUNTIME_STATUS" != "available" ]; then
-    check_4
-    info "  * Runtime $RUNTIME_STATUS: skipping Section 4 - Container Images"
-    check_4_end
-    return
-  fi
   check_4
   check_4_1
   check_4_2
@@ -153,12 +147,6 @@ container_images_level1() {
 }
 
 container_runtime() {
-  if [ "$RUNTIME_STATUS" != "" ] && [ "$RUNTIME_STATUS" != "available" ]; then
-    check_5
-    info "  * Runtime $RUNTIME_STATUS: skipping Section 5 - Container Runtime"
-    check_5_end
-    return
-  fi
   check_5
   check_running_containers
   check_5_1
@@ -202,12 +190,6 @@ container_runtime_level1() {
 }
 
 docker_security_operations() {
-  if [ "$RUNTIME_STATUS" != "" ] && [ "$RUNTIME_STATUS" != "available" ]; then
-    check_6
-    info "  * Runtime $RUNTIME_STATUS: skipping Section 6 - Docker Security Operations"
-    check_6_end
-    return
-  fi
   check_6
   check_6_1
   check_6_2
@@ -222,12 +204,6 @@ docker_security_operations_level1() {
 }
 
 docker_swarm_configuration() {
-  if [ "$RUNTIME_STATUS" != "" ] && [ "$RUNTIME_STATUS" != "available" ]; then
-    check_7
-    info "  * Runtime $RUNTIME_STATUS: skipping Section 7 - Docker Swarm Configuration"
-    check_7_end
-    return
-  fi
   check_7
   check_7_1
   check_7_2
@@ -299,12 +275,6 @@ docker_trusted_registry_configuration() {
 }
 
 community_checks() {
-  if [ "$RUNTIME_STATUS" != "" ] && [ "$RUNTIME_STATUS" != "available" ]; then
-    check_c
-    info "  * Runtime $RUNTIME_STATUS: skipping Community Checks"
-    check_c_end
-    return
-  fi
   check_c
   check_c_1
   check_c_1_1
