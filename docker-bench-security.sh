@@ -28,44 +28,11 @@ export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 # Check for required program(s)
 req_programs 'awk docker grep sed stat tail tee tr wc xargs'
 
-# Get the flags
-# If you add an option here, please
-# remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:pL args
-do
-  case $args in
-  b) nocolor="nocolor";;
-  h) usage; exit 0 ;;
-  l) logger="$OPTARG" ;;
-  u) dockertrustusers="$OPTARG" ;;
-  c) check="$OPTARG" ;;
-  e) checkexclude="$OPTARG" ;;
-  i) include="$OPTARG" ;;
-  x) exclude="$OPTARG" ;;
-  t) labels="$OPTARG" ;;
-  n) limit="$OPTARG" ;;
-  p) printremediation="1" ;;
-  L) listchecks="1" ;;
-  *) usage; exit 1 ;;
-  esac
-done
-
-# Load output formating
-. $LIBEXEC/functions/output_lib.sh
-
-# Handle -L: list registered checks and exit (no Docker needed)
-if [ "$listchecks" = "1" ]; then
-  _list_all_checks
-  exit 0
-fi
-
 # Ensure we can connect to docker daemon
 if ! docker ps -q >/dev/null 2>&1; then
   printf "Error connecting to docker daemon (does docker ps work?)\n"
   exit 1
 fi
-
-yell_info
 
 usage () {
   cat <<EOF
@@ -95,7 +62,6 @@ Options:
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
-  -L           optional  List all registered check groups and checks, then exit.
 
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
@@ -116,7 +82,7 @@ globalRemediation=""
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:pL args
+while getopts bhl:u:c:e:i:x:t:n:p args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -130,19 +96,12 @@ do
   t) labels="$OPTARG" ;;
   n) limit="$OPTARG" ;;
   p) printremediation="1" ;;
-  L) listchecks="1" ;;
   *) usage; exit 1 ;;
   esac
 done
 
 # Load output formating
 . $LIBEXEC/functions/output_lib.sh
-
-# Handle -L: list registered checks and exit (no Docker needed)
-if [ "$listchecks" = "1" ]; then
-  _list_all_checks
-  exit 0
-fi
 
 yell_info
 
@@ -208,42 +167,50 @@ main () {
     . "$test"
   done
 
-  if [ -z "$check" ] && [ -z "$checkexclude" ]; then
-    # No options: run all CIS checks
+  if [ -z "$check" ] && [ ! "$checkexclude" ]; then
+    # No options just run
     cis
   elif [ -z "$check" ]; then
-    # Excludes only: run CIS checks with exclusion via registry
-    _run_group cis "$checkexclude"
-  else
-    for c in $(echo "$check" | sed "s/,/ /g"); do
-      if [ -z "$checkexclude" ]; then
-        # No excludes: run the check/group directly
-        if command -v "$c" 2>/dev/null 1>&2; then
-          "$c"
-        else
-          echo "Check \"$c\" doesn't seem to exist."
-        fi
-      else
-        # Excludes specified: use registry for expansion and filtering
-        if _is_registered_group "$c"; then
-          _run_group "$c" "$checkexclude"
-        elif _is_leaf_check "$c"; then
-          if ! _is_excluded "$c" "$checkexclude"; then
-            if command -v "$c" 2>/dev/null 1>&2; then
-              "$c"
-            else
-              echo "Check \"$c\" doesn't seem to exist."
-            fi
-          fi
-        elif command -v "$c" 2>/dev/null 1>&2; then
-          # Callable function but not in registry — run directly
-          "$c"
-        else
-          echo "Check \"$c\" doesn't seem to exist."
-        fi
-      fi
-    done
+    # No check defined but excludes defined: start from cis group members
+    check=$(get_group_members cis)
   fi
+
+  for c in $(echo "$check" | sed "s/,/ /g"); do
+    if ! command -v "$c" 2>/dev/null 1>&2 && ! is_group "$c"; then
+      echo "Check \"$c\" doesn't seem to exist."
+      continue
+    fi
+    if [ -z "$checkexclude" ]; then
+      # No excludes just run the checks specified
+      if is_group "$c"; then
+        run_group "$c"
+      else
+        "$c"
+      fi
+    else
+      # Excludes specified and check exists
+      checkexcluded="$(echo ",$checkexclude" | sed -e 's/^/\^/g' -e 's/,/\$|/g' -e 's/$/\$/g')"
+
+      if echo "$c" | grep -E "$checkexcluded" 2>/dev/null 1>&2; then
+        # Excluded
+        continue
+      fi
+
+      # Expand group to individual checks via registry
+      if is_group "$c"; then
+        loop_checks=$(expand_group "$c")
+      else
+        loop_checks="$c"
+      fi
+
+      for lc in $loop_checks; do
+        if echo "$lc" | grep -vE "$checkexcluded" 2>/dev/null 1>&2; then
+          # Not excluded
+          "$lc"
+        fi
+      done
+    fi
+  done
 
   if [ -n "${globalRemediation}" ] && [ "$printremediation" = "1" ]; then
     logit "\n\n${bldylw}Section B - Remediation measures${txtrst}"
