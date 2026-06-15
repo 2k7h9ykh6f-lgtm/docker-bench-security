@@ -1,0 +1,52 @@
+# Docker Bench for Security - Configuration File
+#
+# Place this file at:
+#   ./docker-bench-security.conf  (current directory, checked first)
+#   /etc/docker-bench-security.conf  (system-wide)
+#
+# Or specify a custom path via the DBS_CONFIG_FILE environment variable.
+#
+# Priority (highest wins):
+#   CLI flags > Environment variables (DBS_*) > Config file > Built-in defaults
+#
+# All values shown below are the built-in defaults.
+
+# Path to the log file. Parent directory must exist.
+# CLI: -l FILE | Env: DBS_LOG_FILE
+#log_file=log/docker-bench-security.log
+
+# Disable colored output. Accepts: true/false/yes/no/1/0
+# CLI: -b | Env: DBS_NO_COLOR
+#no_color=false
+
+# In JSON output, limit the number of reported items (0 = no limit).
+# CLI: -n LIMIT | Env: DBS_LIMIT
+#limit=0
+
+# Print remediation measures. Accepts: true/false/yes/no/1/0
+# CLI: -p | Env: DBS_PRINT_REMEDIATION
+#print_remediation=false
+
+# Comma-delimited list of trusted Docker users.
+# CLI: -u USERS | Env: DBS_TRUST_USERS
+#trust_users=
+
+# Comma-delimited list of specific check IDs to run.
+# CLI: -c CHECK | Env: DBS_CHECK
+#check=
+
+# Comma-delimited list of specific check IDs to exclude.
+# CLI: -e CHECK | Env: DBS_CHECK_EXCLUDE
+#check_exclude=
+
+# Comma-delimited list of container/image name patterns to include.
+# CLI: -i INCLUDE | Env: DBS_INCLUDE
+#include=
+
+# Comma-delimited list of container/image name patterns to exclude.
+# CLI: -x EXCLUDE | Env: DBS_EXCLUDE
+#exclude=
+
+# Comma-delimited list of container/image labels to filter by.
+# CLI: -t LABEL | Env: DBS_LABELS
+#labels=

@@ -14,6 +14,7 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
+. $LIBEXEC/functions/config_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -63,6 +64,13 @@ Options:
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
 
+Configuration:
+  Config file: ./docker-bench-security.conf or /etc/docker-bench-security.conf
+  Override config file path with DBS_CONFIG_FILE environment variable.
+  Environment variables (DBS_* prefix) override config file values.
+  CLI flags override all other sources.
+  See docker-bench-security.conf.example for all available settings.
+
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
 Released under the Apache-2.0 License.
@@ -74,10 +82,15 @@ if [ ! -d log ]; then
   mkdir log
 fi
 
-logger="log/${myname}.log"
-limit=0
-printremediation="0"
 globalRemediation=""
+
+# Load configuration: defaults -> config file -> environment -> CLI (below)
+config_set_defaults
+if ! config_load_file; then
+  printf "Error: Failed to load configuration file. Exiting.\n" >&2
+  exit 1
+fi
+config_load_env
 
 # Get the flags
 # If you add an option here, please
@@ -85,23 +98,31 @@ globalRemediation=""
 while getopts bhl:u:c:e:i:x:t:n:p args
 do
   case $args in
-  b) nocolor="nocolor";;
+  b) config_set_from_cli nocolor "nocolor" "-b";;
   h) usage; exit 0 ;;
-  l) logger="$OPTARG" ;;
-  u) dockertrustusers="$OPTARG" ;;
-  c) check="$OPTARG" ;;
-  e) checkexclude="$OPTARG" ;;
-  i) include="$OPTARG" ;;
-  x) exclude="$OPTARG" ;;
-  t) labels="$OPTARG" ;;
-  n) limit="$OPTARG" ;;
-  p) printremediation="1" ;;
+  l) config_set_from_cli logger "$OPTARG" "-l";;
+  u) config_set_from_cli dockertrustusers "$OPTARG" "-u";;
+  c) config_set_from_cli check "$OPTARG" "-c";;
+  e) config_set_from_cli checkexclude "$OPTARG" "-e";;
+  i) config_set_from_cli include "$OPTARG" "-i";;
+  x) config_set_from_cli exclude "$OPTARG" "-x";;
+  t) config_set_from_cli labels "$OPTARG" "-t";;
+  n) config_set_from_cli limit "$OPTARG" "-n";;
+  p) config_set_from_cli printremediation "1" "-p";;
   *) usage; exit 1 ;;
   esac
 done
 
+# Validate configuration
+if ! config_validate; then
+  exit 1
+fi
+
 # Load output formating
 . $LIBEXEC/functions/output_lib.sh
+
+# Print effective configuration
+config_print_summary
 
 yell_info
 
