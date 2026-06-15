@@ -62,6 +62,14 @@ Options:
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
+  -X STRATEGY  optional  Exit code strategy. Values: none (default), warn, info, score. Default: none (always exit 0).
+  -S THRESHOLD optional  Score threshold for score-based exit strategy. Default: 0.
+
+Exit Strategies:
+  none   - Always exit 0 (backward compatible)
+  warn   - Exit 1 if any WARN found, else 0
+  info   - Exit 2 if any WARN, exit 1 if any INFO, else 0
+  score  - Exit 1 if score < threshold, else 0
 
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
@@ -78,11 +86,13 @@ logger="log/${myname}.log"
 limit=0
 printremediation="0"
 globalRemediation=""
+exitStrategy="none"
+scoreThreshold=0
 
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:p args
+while getopts bhl:u:c:e:i:x:t:n:pX:S: args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -96,6 +106,8 @@ do
   t) labels="$OPTARG" ;;
   n) limit="$OPTARG" ;;
   p) printremediation="1" ;;
+  X) exitStrategy="$OPTARG" ;;
+  S) scoreThreshold="$OPTARG" ;;
   *) usage; exit 1 ;;
   esac
 done
@@ -116,6 +128,10 @@ fi
 
 totalChecks=0
 currentScore=0
+passCount=0
+warnCount=0
+infoCount=0
+noteCount=0
 
 logit "Initializing $(date +%Y-%m-%dT%H:%M:%S%:z)\n"
 beginjson "$version" "$(date +%s)"
@@ -214,9 +230,15 @@ main () {
 
   logit "\n\n${bldylw}Section C - Score${txtrst}\n"
   info "Checks: $totalChecks"
-  info "Score: $currentScore\n"
+  info "Score: $currentScore"
+  info "PASS: $passCount | WARN: $warnCount | INFO: $infoCount | NOTE: $noteCount\n"
 
-  endjson "$totalChecks" "$currentScore" "$(date +%s)"
+  endjson "$totalChecks" "$currentScore" "$passCount" "$warnCount" "$infoCount" "$noteCount" "$(date +%s)"
+
+  # Compute exit code based on strategy
+  compute_exit_code "$exitStrategy" "$warnCount" "$infoCount" "$currentScore" "$scoreThreshold"
+  exitCode=$?
+  exit $exitCode
 }
 
 main "$@"

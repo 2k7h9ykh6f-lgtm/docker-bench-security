@@ -3,6 +3,52 @@
 # Returns the absolute path of a given string
 abspath () { case "$1" in /*)printf "%s\n" "$1";; *)printf "%s\n" "$PWD/$1";; esac; }
 
+# Compute exit code based on exit strategy and check results
+# Usage: compute_exit_code <exit_strategy> <warn_count> <info_count> <current_score> <score_threshold>
+# Exit strategies:
+#   none  - Always exit 0 (default, backward compatible)
+#   warn  - Exit 1 if any WARN found
+#   info  - Exit 2 if any WARN, exit 1 if any INFO found
+#   score - Exit 1 if score < threshold
+compute_exit_code() {
+  local strategy="$1"
+  local warns="$2"
+  local infos="$3"
+  local score="$4"
+  local threshold="${5:-0}"
+
+  case "$strategy" in
+    none)
+      return 0
+      ;;
+    warn)
+      if [ "$warns" -gt 0 ]; then
+        return 1
+      fi
+      return 0
+      ;;
+    info)
+      if [ "$warns" -gt 0 ]; then
+        return 2
+      fi
+      if [ "$infos" -gt 0 ]; then
+        return 1
+      fi
+      return 0
+      ;;
+    score)
+      if [ "$score" -lt "$threshold" ]; then
+        return 1
+      fi
+      return 0
+      ;;
+    *)
+      printf "Warning: unknown exit strategy '%s', using 'none'\n" "$strategy" >&2
+      return 0
+      ;;
+  esac
+}
+
 # Audit rules default path
 auditrules="/etc/audit/audit.rules"
 
