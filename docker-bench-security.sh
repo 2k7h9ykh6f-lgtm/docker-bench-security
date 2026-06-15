@@ -34,6 +34,9 @@ if ! docker ps -q >/dev/null 2>&1; then
   exit 1
 fi
 
+# Detect Docker environment (rootful vs rootless, socket paths, config dirs)
+detect_docker_environment
+
 usage () {
   cat <<EOF
 Docker Bench for Security - Docker, Inc. (c) 2015-$(date +"%Y")
@@ -105,8 +108,8 @@ done
 
 yell_info
 
-# Warn if not root
-if [ "$(id -u)" != "0" ]; then
+# Warn if not root (unless running against a rootless daemon)
+if [ "$(id -u)" != "0" ] && [ "$DOCKER_IS_ROOTLESS" != "true" ]; then
   warn "$(yell 'Some tests might require root to run')\n"
   sleep 3
 fi
@@ -171,35 +174,30 @@ main () {
     # No options just run
     cis
   elif [ -z "$check" ]; then
-    # No check defined but excludes defined: start from cis group members
-    check=$(get_group_members cis)
+    # No check defined but excludes defined set to calls in cis() function
+    check=$(sed -ne "/cis() {/,/}/{/{/d; /}/d; p;}" functions/functions_lib.sh)
   fi
 
   for c in $(echo "$check" | sed "s/,/ /g"); do
-    if ! command -v "$c" 2>/dev/null 1>&2 && ! is_group "$c"; then
+    if ! command -v "$c" 2>/dev/null 1>&2; then
       echo "Check \"$c\" doesn't seem to exist."
       continue
     fi
     if [ -z "$checkexclude" ]; then
       # No excludes just run the checks specified
-      if is_group "$c"; then
-        run_group "$c"
-      else
-        "$c"
-      fi
+      "$c"
     else
-      # Excludes specified and check exists
+      # Exludes specified and check exists
       checkexcluded="$(echo ",$checkexclude" | sed -e 's/^/\^/g' -e 's/,/\$|/g' -e 's/$/\$/g')"
 
       if echo "$c" | grep -E "$checkexcluded" 2>/dev/null 1>&2; then
         # Excluded
         continue
-      fi
-
-      # Expand group to individual checks via registry
-      if is_group "$c"; then
-        loop_checks=$(expand_group "$c")
+      elif echo "$c" | grep -vE 'check_[0-9]|check_[a-z]' 2>/dev/null 1>&2; then
+        # Function not a check, fill loop_checks with all check from function
+        loop_checks="$(sed -ne "/$c() {/,/}/{/{/d; /}/d; p;}" functions/functions_lib.sh)"
       else
+        # Just one check
         loop_checks="$c"
       fi
 
