@@ -62,6 +62,8 @@ Options:
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
+  -s STRATEGY  optional  Exit code strategy: 'warn' (exit 1 if any WARN), 'score' (exit 1 if score < 0).
+                          Default: always exit 0. Can also be set via env var DOCKER_BENCH_EXIT.
 
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
@@ -78,11 +80,12 @@ logger="log/${myname}.log"
 limit=0
 printremediation="0"
 globalRemediation=""
+exitStrategy="${DOCKER_BENCH_EXIT:-}"
 
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:p args
+while getopts bhl:u:c:e:i:x:t:n:ps: args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -96,6 +99,7 @@ do
   t) labels="$OPTARG" ;;
   n) limit="$OPTARG" ;;
   p) printremediation="1" ;;
+  s) exitStrategy="$OPTARG" ;;
   *) usage; exit 1 ;;
   esac
 done
@@ -116,6 +120,10 @@ fi
 
 totalChecks=0
 currentScore=0
+passCount=0
+warnCount=0
+infoCount=0
+noteCount=0
 
 logit "Initializing $(date +%Y-%m-%dT%H:%M:%S%:z)\n"
 beginjson "$version" "$(date +%s)"
@@ -214,9 +222,18 @@ main () {
 
   logit "\n\n${bldylw}Section C - Score${txtrst}\n"
   info "Checks: $totalChecks"
-  info "Score: $currentScore\n"
+  info "Score: $currentScore"
+  logit ""
+  info "Results:"
+  info "  - Pass: $passCount"
+  info "  - Warn: $warnCount"
+  info "  - Info: $infoCount"
+  info "  - Note: $noteCount"
+  logit ""
 
-  endjson "$totalChecks" "$currentScore" "$(date +%s)"
+  endjson "$totalChecks" "$currentScore" "$passCount" "$warnCount" "$infoCount" "$noteCount" "$(date +%s)"
 }
 
 main "$@"
+
+exit "$(get_exit_code "$exitStrategy")"
