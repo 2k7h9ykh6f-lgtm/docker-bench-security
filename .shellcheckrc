@@ -1,0 +1,5 @@
+# shellcheck configuration for docker-bench-security
+#
+# SC1090: Can't follow non-constant source — we use dynamic $LIBEXEC paths
+# SC1091: Not following sourced file — same reason, paths resolved at runtime
+disable=SC1090,SC1091
