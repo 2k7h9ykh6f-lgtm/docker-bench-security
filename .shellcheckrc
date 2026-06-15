@@ -1,5 +1,6 @@
-# shellcheck configuration for docker-bench-security
+# docker-bench-security shellcheck configuration
 #
-# SC1090: Can't follow non-constant source — we use dynamic $LIBEXEC paths
-# SC1091: Not following sourced file — same reason, paths resolved at runtime
-disable=SC1090,SC1091
+# SC1091 - Not following sourced file (runtime-resolved paths)
+# SC2034 - Variable appears unused (assigned here, used by sourcing script)
+# SC2154 - Variable referenced but not assigned (assigned by sourcing script)
+disable=SC1091,SC2034,SC2154
