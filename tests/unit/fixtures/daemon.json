@@ -1,0 +1,11 @@
+{
+  "log-level": "info",
+  "icc": false,
+  "userns-remap": "default",
+  "live-restore": true,
+  "no-new-privileges": true,
+  "default-ulimits": {
+    "nproc": {"Name": "nproc", "Hard": 65535, "Soft": 65535},
+    "nofile": {"Name": "nofile", "Hard": 65535, "Soft": 65535}
+  }
+}
