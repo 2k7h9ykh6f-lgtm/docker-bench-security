@@ -171,30 +171,35 @@ main () {
     # No options just run
     cis
   elif [ -z "$check" ]; then
-    # No check defined but excludes defined set to calls in cis() function
-    check=$(sed -ne "/cis() {/,/}/{/{/d; /}/d; p;}" functions/functions_lib.sh)
+    # No check defined but excludes defined: start from cis group members
+    check=$(get_group_members cis)
   fi
 
   for c in $(echo "$check" | sed "s/,/ /g"); do
-    if ! command -v "$c" 2>/dev/null 1>&2; then
+    if ! command -v "$c" 2>/dev/null 1>&2 && ! is_group "$c"; then
       echo "Check \"$c\" doesn't seem to exist."
       continue
     fi
     if [ -z "$checkexclude" ]; then
       # No excludes just run the checks specified
-      "$c"
+      if is_group "$c"; then
+        run_group "$c"
+      else
+        "$c"
+      fi
     else
-      # Exludes specified and check exists
+      # Excludes specified and check exists
       checkexcluded="$(echo ",$checkexclude" | sed -e 's/^/\^/g' -e 's/,/\$|/g' -e 's/$/\$/g')"
 
       if echo "$c" | grep -E "$checkexcluded" 2>/dev/null 1>&2; then
         # Excluded
         continue
-      elif echo "$c" | grep -vE 'check_[0-9]|check_[a-z]' 2>/dev/null 1>&2; then
-        # Function not a check, fill loop_checks with all check from function
-        loop_checks="$(sed -ne "/$c() {/,/}/{/{/d; /}/d; p;}" functions/functions_lib.sh)"
+      fi
+
+      # Expand group to individual checks via registry
+      if is_group "$c"; then
+        loop_checks=$(expand_group "$c")
       else
-        # Just one check
         loop_checks="$c"
       fi
 
