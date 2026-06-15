@@ -14,6 +14,7 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
+. $LIBEXEC/functions/rootless_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -28,7 +29,20 @@ export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 # Check for required program(s)
 req_programs 'awk docker grep sed stat tail tee tr wc xargs'
 
+# Detect rootless vs rootful Docker and resolve paths
+detect_docker_mode
+
 # Ensure we can connect to docker daemon
+socket_rc=0
+check_docker_socket_access || socket_rc=$?
+if [ "$socket_rc" -eq 1 ]; then
+  printf "Docker socket not found at %s\n" "$DOCKER_SOCK_PATH"
+  printf "If using rootless Docker, ensure DOCKER_HOST is set correctly.\n"
+  exit 1
+elif [ "$socket_rc" -eq 2 ]; then
+  printf "Permission denied on Docker socket %s\n" "$DOCKER_SOCK_PATH"
+  exit 1
+fi
 if ! docker ps -q >/dev/null 2>&1; then
   printf "Error connecting to docker daemon (does docker ps work?)\n"
   exit 1
@@ -104,6 +118,8 @@ done
 . $LIBEXEC/functions/output_lib.sh
 
 yell_info
+
+info "Docker mode: $DOCKER_MODE (socket: $DOCKER_SOCK_PATH)"
 
 # Warn if not root
 if [ "$(id -u)" != "0" ]; then
