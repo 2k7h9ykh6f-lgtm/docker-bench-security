@@ -6,6 +6,31 @@ abspath () { case "$1" in /*)printf "%s\n" "$1";; *)printf "%s\n" "$PWD/$1";; es
 # Audit rules default path
 auditrules="/etc/audit/audit.rules"
 
+# Detect a container runtime: prefer docker, fall back to podman.
+# Sets the global variable CONTAINER_RUNTIME on success.
+# On failure, prints a consistent error message and exits.
+detect_container_runtime() {
+  local rt
+  for rt in docker podman; do
+    if command -v "$rt" >/dev/null 2>&1; then
+      CONTAINER_RUNTIME="$rt"
+      break
+    fi
+  done
+
+  if [ -z "$CONTAINER_RUNTIME" ]; then
+    printf "Container runtime not found: neither docker nor podman is available on PATH\n"
+    exit 1
+  fi
+
+  # Verify the detected runtime can actually talk to its daemon
+  if ! "$CONTAINER_RUNTIME" ps -q >/dev/null 2>&1; then
+    printf "Error connecting to %s daemon (does %s ps work?)\n" \
+      "$CONTAINER_RUNTIME" "$CONTAINER_RUNTIME"
+    exit 1
+  fi
+}
+
 # Check for required program(s)
 req_programs() {
   for p in $1; do

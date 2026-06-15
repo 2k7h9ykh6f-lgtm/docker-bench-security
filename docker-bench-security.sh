@@ -26,13 +26,10 @@ readonly myname
 export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 
 # Check for required program(s)
-req_programs 'awk docker grep sed stat tail tee tr wc xargs'
+req_programs 'awk grep sed stat tail tee tr wc xargs'
 
-# Ensure we can connect to docker daemon
-if ! docker ps -q >/dev/null 2>&1; then
-  printf "Error connecting to docker daemon (does docker ps work?)\n"
-  exit 1
-fi
+# Detect container runtime (docker preferred, podman fallback) and verify daemon connectivity
+detect_container_runtime
 
 usage () {
   cat <<EOF
