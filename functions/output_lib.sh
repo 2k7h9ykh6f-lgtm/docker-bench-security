@@ -75,8 +75,8 @@ warn () {
   if [ "$warnScored" = "true" ]; then
     printf "%b\n" "${bldred}[WARN]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
-    currentScore=$((currentScore - 1))
     warnCount=$((warnCount + 1))
+    currentScore=$((currentScore - 1))
     return
   fi
   printf "%b\n" "${bldred}[WARN]${txtrst} $1" | tee -a "$logger"
@@ -110,7 +110,33 @@ beginjson () {
 }
 
 endjson (){
-  printf "\n  ],\n  \"checks\": %s,\n  \"score\": %s,\n  \"pass\": %s,\n  \"warn\": %s,\n  \"info\": %s,\n  \"note\": %s,\n  \"end\": %s\n}" "$1" "$2" "$3" "$4" "$5" "$6" "$7" | tee -a "$logger.json" 2>/dev/null 1>&2
+  printf "\n  ],\n  \"checks\": %s,\n  \"score\": %s,\n  \"results\": {\n    \"pass\": %s,\n    \"warn\": %s,\n    \"info\": %s,\n    \"note\": %s\n  },\n  \"end\": %s\n}" "$1" "$2" "$3" "$4" "$5" "$6" "$7" | tee -a "$logger.json" 2>/dev/null 1>&2
+}
+
+get_exit_code() {
+  _strategy="$1"
+  case "$_strategy" in
+    warn)
+      # Exit 1 if any scored WARN results were recorded
+      if [ "$warnCount" -gt 0 ]; then
+        echo 1
+      else
+        echo 0
+      fi
+      ;;
+    score)
+      # Exit 1 if the net score is negative
+      if [ "$currentScore" -lt 0 ]; then
+        echo 1
+      else
+        echo 0
+      fi
+      ;;
+    *)
+      # Default: backward-compatible, always exit 0
+      echo 0
+      ;;
+  esac
 }
 
 logjson (){

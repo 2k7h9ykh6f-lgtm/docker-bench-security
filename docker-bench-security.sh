@@ -62,14 +62,8 @@ Options:
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
-  -X STRATEGY  optional  Exit code strategy. Values: none (default), warn, info, score. Default: none (always exit 0).
-  -S THRESHOLD optional  Score threshold for score-based exit strategy. Default: 0.
-
-Exit Strategies:
-  none   - Always exit 0 (backward compatible)
-  warn   - Exit 1 if any WARN found, else 0
-  info   - Exit 2 if any WARN, exit 1 if any INFO, else 0
-  score  - Exit 1 if score < threshold, else 0
+  -s STRATEGY  optional  Exit code strategy: 'warn' (exit 1 if any WARN), 'score' (exit 1 if score < 0).
+                          Default: always exit 0. Can also be set via env var DOCKER_BENCH_EXIT.
 
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
 Full documentation: <https://github.com/docker/docker-bench-security>
@@ -86,13 +80,12 @@ logger="log/${myname}.log"
 limit=0
 printremediation="0"
 globalRemediation=""
-exitStrategy="none"
-scoreThreshold=0
+exitStrategy="${DOCKER_BENCH_EXIT:-}"
 
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:pX:S: args
+while getopts bhl:u:c:e:i:x:t:n:ps: args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -106,8 +99,7 @@ do
   t) labels="$OPTARG" ;;
   n) limit="$OPTARG" ;;
   p) printremediation="1" ;;
-  X) exitStrategy="$OPTARG" ;;
-  S) scoreThreshold="$OPTARG" ;;
+  s) exitStrategy="$OPTARG" ;;
   *) usage; exit 1 ;;
   esac
 done
@@ -231,14 +223,17 @@ main () {
   logit "\n\n${bldylw}Section C - Score${txtrst}\n"
   info "Checks: $totalChecks"
   info "Score: $currentScore"
-  info "PASS: $passCount | WARN: $warnCount | INFO: $infoCount | NOTE: $noteCount\n"
+  logit ""
+  info "Results:"
+  info "  - Pass: $passCount"
+  info "  - Warn: $warnCount"
+  info "  - Info: $infoCount"
+  info "  - Note: $noteCount"
+  logit ""
 
   endjson "$totalChecks" "$currentScore" "$passCount" "$warnCount" "$infoCount" "$noteCount" "$(date +%s)"
-
-  # Compute exit code based on strategy
-  compute_exit_code "$exitStrategy" "$warnCount" "$infoCount" "$currentScore" "$scoreThreshold"
-  exitCode=$?
-  exit $exitCode
 }
 
 main "$@"
+
+exit "$(get_exit_code "$exitStrategy")"
