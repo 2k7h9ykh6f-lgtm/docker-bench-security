@@ -31,6 +31,7 @@ info () {
   if [ "$infoCountCheck" = "true" ]; then
     printf "%b\n" "${bldblu}[INFO]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
+    infoCount=$((infoCount + 1))
     return
   fi
   printf "%b\n" "${bldblu}[INFO]${txtrst} $1" | tee -a "$logger"
@@ -51,6 +52,7 @@ pass () {
   if [ "$passScored" = "true" ] || [ "$passCountCheck" = "true" ]; then
     printf "%b\n" "${bldgrn}[PASS]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
+    passCount=$((passCount + 1))
   fi
   if [ "$passScored" = "true" ]; then
     currentScore=$((currentScore + 1))
@@ -74,6 +76,7 @@ warn () {
     printf "%b\n" "${bldred}[WARN]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
     currentScore=$((currentScore - 1))
+    warnCount=$((warnCount + 1))
     return
   fi
   printf "%b\n" "${bldred}[WARN]${txtrst} $1" | tee -a "$logger"
@@ -92,27 +95,10 @@ note () {
   if [ "$noteCountCheck" = "true" ]; then
     printf "%b\n" "${bldylw}[NOTE]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
+    noteCount=$((noteCount + 1))
     return
   fi
   printf "%b\n" "${bldylw}[NOTE]${txtrst} $1" | tee -a "$logger"
-}
-
-skip () {
-  local skipCountCheck
-  local OPTIND c
-  while getopts c args
-  do
-    case $args in
-    c) skipCountCheck="true" ;;
-    *) exit 1 ;;
-    esac
-  done
-  if [ "$skipCountCheck" = "true" ]; then
-    printf "%b\n" "${bldylw}[SKIP]${txtrst} $2" | tee -a "$logger"
-    totalChecks=$((totalChecks + 1))
-    return
-  fi
-  printf "%b\n" "${bldylw}[SKIP]${txtrst} $1" | tee -a "$logger"
 }
 
 yell () {
@@ -124,7 +110,7 @@ beginjson () {
 }
 
 endjson (){
-  printf "\n  ],\n  \"checks\": %s,\n  \"score\": %s,\n  \"end\": %s\n}" "$1" "$2" "$3" | tee -a "$logger.json" 2>/dev/null 1>&2
+  printf "\n  ],\n  \"checks\": %s,\n  \"score\": %s,\n  \"pass\": %s,\n  \"warn\": %s,\n  \"info\": %s,\n  \"note\": %s,\n  \"end\": %s\n}" "$1" "$2" "$3" "$4" "$5" "$6" "$7" | tee -a "$logger.json" 2>/dev/null 1>&2
 }
 
 logjson (){
