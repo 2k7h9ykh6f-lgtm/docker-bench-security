@@ -1,38 +1,4 @@
 #!/bin/bash
-# --------------------------------------------------------------------------------------------
-# Output Library — Adapter Dispatcher
-#
-# Public API (called by test scripts):
-#   pass  [-s|-c] "message"   Scored pass (+1 score, +1 checks) or counted pass (+1 checks)
-#   warn  [-s]     "message"   Scored warn (-1 score, +1 checks) or plain detail line
-#   info  [-c]     "message"   Counted info (+1 checks) or plain info
-#   note  [-c]     "message"   Counted note (+1 checks) or plain note
-#   logit          "message"   Raw output (section headers, free-form text)
-#   yell           "message"   Banner/header to stdout only (never logged)
-#   summary_print              Emit machine-readable summary (no-op in text mode)
-#
-# Output modes (set via OUTPUT_MODE before sourcing):
-#   text    — backward-compatible coloured [PASS]/[WARN]/[INFO]/[NOTE] lines
-#   summary — silent per-check; single machine-readable report via summary_print
-#
-# JSON output (beginjson/endjson/startsectionjson/.../logcheckresult) writes to
-# $logger.json independently of the stdout adapter and is NOT affected by OUTPUT_MODE.
-# --------------------------------------------------------------------------------------------
-
-# ---- Adapter selection --------------------------------------------------------
-
-OUTPUT_MODE="${OUTPUT_MODE:-text}"
-
-_record_result() {
-  _SUMMARY_RESULTS+=("${1}	${2}")
-}
-
-case "$OUTPUT_MODE" in
-  summary) . "$LIBEXEC/functions/output_adapter_summary.sh" ;;
-  *)       . "$LIBEXEC/functions/output_adapter_text.sh"     ;;
-esac
-
-# ---- Colour definitions (used by text adapter) --------------------------------
 
 bldred='\033[1;31m' # Bold Red
 bldgrn='\033[1;32m' # Bold Green
@@ -48,35 +14,34 @@ if [ -n "$nocolor" ] && [ "$nocolor" = "nocolor" ]; then
   txtrst=''
 fi
 
-# ---- Public API — scoring + adapter dispatch ----------------------------------
-
-logit() {
-  _display_logit "$1"
+logit () {
+  printf "%b\n" "$1" | tee -a "$logger"
 }
 
-info() {
+info () {
   local infoCountCheck
   local OPTIND c
-  while getopts c args; do
+  while getopts c args
+  do
     case $args in
     c) infoCountCheck="true" ;;
     *) exit 1 ;;
     esac
   done
   if [ "$infoCountCheck" = "true" ]; then
-    _record_result "INFO" "$2"
-    _display_info "$2"
+    printf "%b\n" "${bldblu}[INFO]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
     return
   fi
-  _display_info "$1"
+  printf "%b\n" "${bldblu}[INFO]${txtrst} $1" | tee -a "$logger"
 }
 
-pass() {
+pass () {
   local passScored
   local passCountCheck
   local OPTIND s c
-  while getopts sc args; do
+  while getopts sc args
+  do
     case $args in
     s) passScored="true" ;;
     c) passCountCheck="true" ;;
@@ -84,69 +49,67 @@ pass() {
     esac
   done
   if [ "$passScored" = "true" ] || [ "$passCountCheck" = "true" ]; then
-    _record_result "PASS" "$2"
-    _display_pass "$2"
+    printf "%b\n" "${bldgrn}[PASS]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
-  else
-    _display_pass "$1"
   fi
   if [ "$passScored" = "true" ]; then
     currentScore=$((currentScore + 1))
   fi
+  if [ "$passScored" != "true" ] && [ "$passCountCheck" != "true" ]; then
+    printf "%b\n" "${bldgrn}[PASS]${txtrst} $1" | tee -a "$logger"
+  fi
 }
 
-warn() {
+warn () {
   local warnScored
   local OPTIND s
-  while getopts s args; do
+  while getopts s args
+  do
     case $args in
     s) warnScored="true" ;;
     *) exit 1 ;;
     esac
   done
   if [ "$warnScored" = "true" ]; then
-    _record_result "WARN" "$2"
-    _display_warn "$2"
+    printf "%b\n" "${bldred}[WARN]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
     currentScore=$((currentScore - 1))
     return
   fi
-  _display_warn "$1"
+  printf "%b\n" "${bldred}[WARN]${txtrst} $1" | tee -a "$logger"
 }
 
-note() {
+note () {
   local noteCountCheck
   local OPTIND c
-  while getopts c args; do
+  while getopts c args
+  do
     case $args in
     c) noteCountCheck="true" ;;
     *) exit 1 ;;
     esac
   done
   if [ "$noteCountCheck" = "true" ]; then
-    _record_result "NOTE" "$2"
-    _display_note "$2"
+    printf "%b\n" "${bldylw}[NOTE]${txtrst} $2" | tee -a "$logger"
     totalChecks=$((totalChecks + 1))
     return
   fi
-  _display_note "$1"
+  printf "%b\n" "${bldylw}[NOTE]${txtrst} $1" | tee -a "$logger"
 }
 
-yell() {
+yell () {
   printf "%b\n" "${bldylw}$1${txtrst}\n"
 }
 
-# ---- JSON output (unchanged — writes to $logger.json, independent of mode) ----
-
-beginjson() {
+beginjson () {
   printf "{\n  \"dockerbenchsecurity\": \"%s\",\n  \"start\": %s,\n  \"tests\": [" "$1" "$2" | tee "$logger.json" 2>/dev/null 1>&2
 }
 
-endjson() {
+endjson (){
   printf "\n  ],\n  \"checks\": %s,\n  \"score\": %s,\n  \"end\": %s\n}" "$1" "$2" "$3" | tee -a "$logger.json" 2>/dev/null 1>&2
 }
 
-logjson() {
+logjson (){
   printf "\n  \"%s\": \"%s\"," "$1" "$2" | tee -a "$logger.json" 2>/dev/null 1>&2
 }
 

@@ -61,7 +61,6 @@ Options:
   -x EXCLUDE   optional  Comma delimited list of patterns within a container or image name to exclude from check
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
-  -o FORMAT    optional  Output format: text (default, coloured per-check lines) or summary (silent per-check, machine-readable report at end).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
 
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
@@ -79,12 +78,11 @@ logger="log/${myname}.log"
 limit=0
 printremediation="0"
 globalRemediation=""
-OUTPUT_MODE="text"
 
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:o:p args
+while getopts bhl:u:c:e:i:x:t:n:p args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -97,7 +95,6 @@ do
   x) exclude="$OPTARG" ;;
   t) labels="$OPTARG" ;;
   n) limit="$OPTARG" ;;
-  o) OUTPUT_MODE="$OPTARG" ;;
   p) printremediation="1" ;;
   *) usage; exit 1 ;;
   esac
@@ -218,8 +215,6 @@ main () {
   logit "\n\n${bldylw}Section C - Score${txtrst}\n"
   info "Checks: $totalChecks"
   info "Score: $currentScore\n"
-
-  summary_print
 
   endjson "$totalChecks" "$currentScore" "$(date +%s)"
 }
