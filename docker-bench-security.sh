@@ -14,6 +14,7 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
+. $LIBEXEC/functions/privilege_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -25,14 +26,13 @@ readonly myname
 
 export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 
-# Check for required program(s)
-req_programs 'awk docker grep sed stat tail tee tr wc xargs'
-
-# Ensure we can connect to docker daemon
-if ! docker ps -q >/dev/null 2>&1; then
-  printf "Error connecting to docker daemon (does docker ps work?)\n"
-  exit 1
+# Check for docker separately — it may be absent in degraded mode
+if [ "$HAS_DOCKER" -eq 1 ]; then
+  req_programs 'docker'
 fi
+
+# Check for required program(s) that don't need Docker
+req_programs 'awk grep sed stat tail tee tr wc xargs'
 
 usage () {
   cat <<EOF
@@ -105,10 +105,16 @@ done
 
 yell_info
 
-# Warn if not root
-if [ "$(id -u)" != "0" ]; then
-  warn "$(yell 'Some tests might require root to run')\n"
-  sleep 3
+# Report privilege level
+if [ "$IS_ROOT" -eq 0 ]; then
+  warn "$(yell 'Not running as root. Some checks will be skipped.')\n"
+fi
+if [ "$HAS_DOCKER" -eq 0 ]; then
+  if [ "$HAS_DOCKER_SOCKET" -eq 0 ]; then
+    warn "$(yell 'Docker socket not found. Docker-dependent checks will be skipped.')\n"
+  else
+    warn "$(yell 'Cannot connect to Docker daemon. Docker-dependent checks will be skipped.')\n"
+  fi
 fi
 
 # Total Score
@@ -127,40 +133,46 @@ main () {
   # Get configuration location
   get_docker_configuration_file
 
-  # If there is a container with label docker_bench_security, memorize it:
+  # Docker-dependent setup: container/image enumeration
   benchcont="nil"
-  for c in $(docker ps | sed '1d' | awk '{print $NF}'); do
-    if docker inspect --format '{{ .Config.Labels }}' "$c" | \
-     grep -e 'docker.bench.security' >/dev/null 2>&1; then
-      benchcont="$c"
-    fi
-  done
-
-  # Get the image id of the docker_bench_security_image, memorize it:
   benchimagecont="nil"
-  for c in $(docker images | sed '1d' | awk '{print $3}'); do
-    if docker inspect --format '{{ .Config.Labels }}' "$c" | \
-     grep -e 'docker.bench.security' >/dev/null 2>&1; then
-      benchimagecont="$c"
+  containers=""
+  images=""
+
+  if [ "$HAS_DOCKER" -eq 1 ]; then
+    # If there is a container with label docker_bench_security, memorize it:
+    for c in $(docker ps | sed '1d' | awk '{print $NF}'); do
+      if docker inspect --format '{{ .Config.Labels }}' "$c" | \
+       grep -e 'docker.bench.security' >/dev/null 2>&1; then
+        benchcont="$c"
+      fi
+    done
+
+    # Get the image id of the docker_bench_security_image, memorize it:
+    for c in $(docker images | sed '1d' | awk '{print $3}'); do
+      if docker inspect --format '{{ .Config.Labels }}' "$c" | \
+       grep -e 'docker.bench.security' >/dev/null 2>&1; then
+        benchimagecont="$c"
+      fi
+    done
+
+    # Format LABELS
+    for label in $(echo "$labels" | sed 's/,/ /g'); do
+      LABELS="$LABELS --filter label=$label"
+    done
+
+    if [ -n "$include" ]; then
+      pattern=$(echo "$include" | sed 's/,/|/g')
+      containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -E "$pattern")
+      images=$(docker images $LABELS| sed '1d' | grep -E "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
+    elif [ -n "$exclude" ]; then
+      pattern=$(echo "$exclude" | sed 's/,/|/g')
+      containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -Ev "$pattern")
+      images=$(docker images $LABELS| sed '1d' | grep -Ev "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
+    else
+      containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont")
+      images=$(docker images -q $LABELS| grep -v "$benchcont")
     fi
-  done
-
-  # Format LABELS
-  for label in $(echo "$labels" | sed 's/,/ /g'); do
-    LABELS="$LABELS --filter label=$label"
-  done
-
-  if [ -n "$include" ]; then
-    pattern=$(echo "$include" | sed 's/,/|/g')
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -E "$pattern")
-    images=$(docker images $LABELS| sed '1d' | grep -E "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
-  elif [ -n "$exclude" ]; then
-    pattern=$(echo "$exclude" | sed 's/,/|/g')
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont" | grep -Ev "$pattern")
-    images=$(docker images $LABELS| sed '1d' | grep -Ev "$pattern" | awk '{print $3}' | grep -v "$benchimagecont")
-  else
-    containers=$(docker ps $LABELS| sed '1d' | awk '{print $NF}' | grep -v "$benchcont")
-    images=$(docker images -q $LABELS| grep -v "$benchcont")
   fi
 
   for test in $LIBEXEC/tests/*.sh; do

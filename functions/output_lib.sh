@@ -97,6 +97,24 @@ note () {
   printf "%b\n" "${bldylw}[NOTE]${txtrst} $1" | tee -a "$logger"
 }
 
+skip () {
+  local skipCountCheck
+  local OPTIND c
+  while getopts c args
+  do
+    case $args in
+    c) skipCountCheck="true" ;;
+    *) exit 1 ;;
+    esac
+  done
+  if [ "$skipCountCheck" = "true" ]; then
+    printf "%b\n" "${bldylw}[SKIP]${txtrst} $2" | tee -a "$logger"
+    totalChecks=$((totalChecks + 1))
+    return
+  fi
+  printf "%b\n" "${bldylw}[SKIP]${txtrst} $1" | tee -a "$logger"
+}
+
 yell () {
   printf "%b\n" "${bldylw}$1${txtrst}\n"
 }
