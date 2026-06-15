@@ -17,12 +17,6 @@ check_2_1() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  if [ "$DOCKER_MODE" = "rootless" ]; then
-    pass -c "$check"
-    info "     * Docker daemon is running in rootless mode"
-    logcheckresult "PASS"
-    return
-  fi
   note -c "$check"
   logcheckresult "INFO"
 }

@@ -14,7 +14,6 @@ LIBEXEC="." # Distributions can change this to /usr/libexec or similar.
 # Load dependencies
 . $LIBEXEC/functions/functions_lib.sh
 . $LIBEXEC/functions/helper_lib.sh
-. $LIBEXEC/functions/rootless_lib.sh
 
 # Setup the paths
 this_path=$(abspath "$0")       ## Path of this file including filename
@@ -29,20 +28,7 @@ export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/local/bin:/usr/sbin/"
 # Check for required program(s)
 req_programs 'awk docker grep sed stat tail tee tr wc xargs'
 
-# Detect rootless vs rootful Docker and resolve paths
-detect_docker_mode
-
 # Ensure we can connect to docker daemon
-socket_rc=0
-check_docker_socket_access || socket_rc=$?
-if [ "$socket_rc" -eq 1 ]; then
-  printf "Docker socket not found at %s\n" "$DOCKER_SOCK_PATH"
-  printf "If using rootless Docker, ensure DOCKER_HOST is set correctly.\n"
-  exit 1
-elif [ "$socket_rc" -eq 2 ]; then
-  printf "Permission denied on Docker socket %s\n" "$DOCKER_SOCK_PATH"
-  exit 1
-fi
 if ! docker ps -q >/dev/null 2>&1; then
   printf "Error connecting to docker daemon (does docker ps work?)\n"
   exit 1
@@ -75,6 +61,7 @@ Options:
   -x EXCLUDE   optional  Comma delimited list of patterns within a container or image name to exclude from check
   -t LABEL     optional  Comma delimited list of labels within a container or image to check
   -n LIMIT     optional  In JSON output, when reporting lists of items (containers, images, etc.), limit the number of reported items to LIMIT. Default 0 (no limit).
+  -o FORMAT    optional  Output format: text (default, coloured per-check lines) or summary (silent per-check, machine-readable report at end).
   -p PRINT     optional  Print remediation measures. Default: Don't print remediation measures.
 
 Complete list of checks: <https://github.com/docker/docker-bench-security/blob/master/tests/>
@@ -92,11 +79,12 @@ logger="log/${myname}.log"
 limit=0
 printremediation="0"
 globalRemediation=""
+OUTPUT_MODE="text"
 
 # Get the flags
 # If you add an option here, please
 # remember to update usage() above.
-while getopts bhl:u:c:e:i:x:t:n:p args
+while getopts bhl:u:c:e:i:x:t:n:o:p args
 do
   case $args in
   b) nocolor="nocolor";;
@@ -109,6 +97,7 @@ do
   x) exclude="$OPTARG" ;;
   t) labels="$OPTARG" ;;
   n) limit="$OPTARG" ;;
+  o) OUTPUT_MODE="$OPTARG" ;;
   p) printremediation="1" ;;
   *) usage; exit 1 ;;
   esac
@@ -118,8 +107,6 @@ done
 . $LIBEXEC/functions/output_lib.sh
 
 yell_info
-
-info "Docker mode: $DOCKER_MODE (socket: $DOCKER_SOCK_PATH)"
 
 # Warn if not root
 if [ "$(id -u)" != "0" ]; then
@@ -231,6 +218,8 @@ main () {
   logit "\n\n${bldylw}Section C - Score${txtrst}\n"
   info "Checks: $totalChecks"
   info "Score: $currentScore\n"
+
+  summary_print
 
   endjson "$totalChecks" "$currentScore" "$(date +%s)"
 }

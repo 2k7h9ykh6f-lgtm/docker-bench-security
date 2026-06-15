@@ -110,11 +110,6 @@ get_docker_configuration_file() {
     CONFIG_FILE="$FILE"
     return
   fi
-  # Rootless-aware: use path resolved by detect_docker_mode
-  if [ -n "${DOCKER_DAEMON_JSON:-}" ] && [ -f "$DOCKER_DAEMON_JSON" ]; then
-    CONFIG_FILE="$DOCKER_DAEMON_JSON"
-    return
-  fi
   if [ -f '/etc/docker/daemon.json' ]; then
     CONFIG_FILE='/etc/docker/daemon.json'
     return
@@ -136,20 +131,6 @@ get_docker_configuration_file_args() {
 
 get_service_file() {
   SERVICE="$1"
-
-  # Rootless: check user-level systemd paths first
-  if [ "${DOCKER_SYSTEMD_SCOPE:-}" = "user" ]; then
-    if [ -f "$HOME/.config/systemd/user/$SERVICE" ]; then
-      echo "$HOME/.config/systemd/user/$SERVICE"
-      return
-    fi
-    local user_fragment
-    user_fragment="$(systemctl --user show -p FragmentPath "$SERVICE" 2>/dev/null | sed 's/.*=//')"
-    if [ -n "$user_fragment" ] && [ -f "$user_fragment" ]; then
-      echo "$user_fragment"
-      return
-    fi
-  fi
 
   if [ -f "/etc/systemd/system/$SERVICE" ]; then
     echo "/etc/systemd/system/$SERVICE"

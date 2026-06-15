@@ -399,17 +399,15 @@ check_3_15() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="$DOCKER_SOCK_PATH"
+  file="/var/run/docker.sock"
   if [ -S "$file" ]; then
-    local expected_owner
-    expected_owner="$(get_expected_socket_owner)"
-    if [ "$(stat -c %U:%G $file)" = "$expected_owner" ]; then
+    if [ "$(stat -c %U:%G $file)" = 'root:docker' ]; then
       pass -s "$check"
       logcheckresult "PASS"
       return
     fi
     warn -s "$check"
-    warn "      * Wrong ownership for $file (expected $expected_owner)"
+    warn "      * Wrong ownership for $file"
     logcheckresult "WARN" "Wrong ownership for $file"
     return
   fi
@@ -426,7 +424,7 @@ check_3_16() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="$DOCKER_SOCK_PATH"
+  file="/var/run/docker.sock"
   if [ -S "$file" ]; then
     if [ "$(stat -c %a $file)" -le 660 ]; then
       pass -s "$check"
@@ -451,17 +449,15 @@ check_3_17() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="$DOCKER_DAEMON_JSON"
+  file="/etc/docker/daemon.json"
   if [ -f "$file" ]; then
-    local expected_owner
-    expected_owner="$(get_expected_config_owner)"
-    if [ "$(stat -c %U:%G $file)" = "$expected_owner" ]; then
+    if [ "$(stat -c %U:%G $file)" = 'root:root' ]; then
       pass -s "$check"
       logcheckresult "PASS"
       return
     fi
     warn -s "$check"
-    warn "      * Wrong ownership for $file (expected $expected_owner)"
+    warn "      * Wrong ownership for $file"
     logcheckresult "WARN" "Wrong ownership for $file"
     return
   fi
@@ -478,7 +474,7 @@ check_3_18() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  file="$DOCKER_DAEMON_JSON"
+  file="/etc/docker/daemon.json"
   if [ -f "$file" ]; then
     if [ "$(stat -c %a $file)" -le 644 ]; then
       pass -s "$check"

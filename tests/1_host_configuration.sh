@@ -25,7 +25,7 @@ check_1_1_1() {
   starttestjson "$id" "$desc"
 
   docker_root_dir=$(docker info -f '{{ .DockerRootDir }}')
-  if [ "$DOCKER_MODE" != "rootless" ] && docker info | grep -q userns ; then
+  if docker info | grep -q userns ; then
     docker_root_dir=$(readlink -f "$docker_root_dir/..")
   fi
 
