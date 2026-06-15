@@ -17,8 +17,9 @@ check_2_1() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
-    pass -s "$check"
+  if [ "$DOCKER_MODE" = "rootless" ]; then
+    pass -c "$check"
+    info "     * Docker daemon is running in rootless mode"
     logcheckresult "PASS"
     return
   fi
@@ -210,12 +211,6 @@ check_2_9() {
   local check="$id - $desc"
   starttestjson "$id" "$desc"
 
-  # Rootless mode inherently uses user namespaces
-  if [ "$DOCKER_IS_ROOTLESS" = "true" ]; then
-    pass -s "$check"
-    logcheckresult "PASS"
-    return
-  fi
   if [[ $(get_docker_configuration_file_args 'userns-remap' | grep -v '""') ]] && [[ $(get_docker_configuration_file_args 'userns-remap' | grep -v '""') != "null" ]] ; then
     pass -s "$check"
     logcheckresult "PASS"
